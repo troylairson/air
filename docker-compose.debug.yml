@@ -1,0 +1,8 @@
+# Testing only: exposes FreeFlight on the box's loopback so you can curl it over SSH.
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d freeflight
+# Drop this file from the command (plain `docker compose up -d`) once the display works.
+
+services:
+  freeflight:
+    ports:
+      - "127.0.0.1:8000:8000"

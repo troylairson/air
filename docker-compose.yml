@@ -1,0 +1,28 @@
+# Overhead flight display. Deployed to /DATA/AppData/overhead on the ZimaOS box.
+# Image versions are pinned on purpose; bump them by hand (see README, "Upkeep").
+
+name: overhead
+
+services:
+  freeflight:
+    image: ghcr.io/ethos6/free-flight-api:1.0.0
+    restart: unless-stopped
+    env_file: .env
+    networks: [overhead]
+    # No published port: only nginx talks to FreeFlight. For testing from an SSH shell on the
+    # box, add docker-compose.debug.yml (publishes 127.0.0.1:8000).
+
+  nginx:
+    image: nginx:1.28.0-alpine
+    restart: unless-stopped
+    ports:
+      - "${DISPLAY_PORT:-8090}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web:/usr/share/nginx/html:ro
+      - ./config.json:/etc/overhead/config.json:ro
+    networks: [overhead]
+
+networks:
+  overhead:
+    name: overhead
