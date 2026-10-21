@@ -283,6 +283,28 @@ async function checkForUpdate() {
 
 // ---------------------------------------------------------------- start
 
+// Desktop browser comfort: hide the pointer after a few idle seconds, and toggle
+// full screen with a double-click or the F key.
+function setupBrowserControls() {
+  let timer;
+  const wake = () => {
+    document.body.classList.remove('idle-cursor');
+    clearTimeout(timer);
+    timer = setTimeout(() => document.body.classList.add('idle-cursor'), 3000);
+  };
+  window.addEventListener('mousemove', wake);
+  wake();
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else document.documentElement.requestFullscreen?.().catch(() => {});
+  };
+  window.addEventListener('dblclick', toggleFullscreen);
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+  });
+}
+
 async function start() {
   try {
     state.config = await loadConfig();
@@ -299,4 +321,5 @@ async function start() {
   refresh();
 }
 
+setupBrowserControls();
 start();

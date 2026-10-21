@@ -8,7 +8,8 @@ aircraft type, altitude, speed and distance. It runs as two Docker containers on
 | `freeflight` | [FreeFlight](https://github.com/Ethos6/free-flight-api): merges adsb.lol, airplanes.live and adsb.fi and caches their responses. Not published on any port. |
 | `nginx` | Serves the display page on the LAN (port 8090) and proxies FreeFlight and the [adsbdb](https://www.adsbdb.com/) route lookup, so the browser only talks to one origin. |
 
-The screen is any device with a browser pointed full-screen at `http://<box>:8090`.
+The screen is a web browser on any computer on the LAN, open full screen at `http://<box>:8090`.
+A dedicated screen (old tablet, Raspberry Pi) can come later.
 
 **You run every SSH command.** Nothing in this repo connects to the box by itself. Each step
 below lists the commands to run from your own machine; `deploy.sh` is a convenience that runs
@@ -156,18 +157,27 @@ Goal: one command redeploys everything, and the screen comes back by itself afte
    ssh zima 'sudo reboot'
    ```
 
-3. Point the screen at `http://<box>:8090` in full-screen kiosk mode:
-   - **Old Android tablet:** a kiosk browser app (for example Fully Kiosk Browser) set to launch on
-     boot, screen always on, plugged in.
-   - **Monitor + Raspberry Pi:** Raspberry Pi OS with Chromium autostarting as
-     `chromium-browser --kiosk --noerrdialogs --disable-infobars http://<box>:8090`, and screen
-     blanking off (`raspi-config` → Display Options → Screen Blanking).
-   - **Smart TV or spare laptop:** the browser's full-screen mode is enough to try the idea.
+3. Open the display in a web browser on any computer on the LAN:
+   - Go to `http://<box>:8090` and bookmark it.
+   - **Full screen:** double-click the page or press `F` (`Esc` exits). The mouse pointer hides
+     after 3 seconds without movement.
+   - **Keep it awake:** browsers only allow the page to keep the screen on over HTTPS, so set the
+     computer's own display sleep to "never" while it's showing the page.
+   - **Open straight into full screen** (optional), as an app window with no browser bars:
+
+     ```sh
+     # Chrome or Edge; on macOS use "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+     google-chrome --kiosk http://<box>:8090      # Alt+F4 (Cmd+Q on macOS) closes it
+     ```
+
+   Later, a dedicated screen works the same way: an old tablet with a kiosk browser app set to
+   start on boot, or a Raspberry Pi with Chromium in `--kiosk` mode and screen blanking off.
 4. Give the box a DHCP reservation on your router, or use its `.local` name, so the URL never
    changes.
 
-**Check:** after a reboot of the box, the screen shows live aircraft again within 2 minutes with
-no one touching it.
+**Check:** after a reboot of the box, the open browser tab shows live aircraft again within
+2 minutes with no one touching it. While the box is down the page shows "Stale"; it never needs
+a manual refresh.
 
 ## Phase 4 (optional): your own receiver
 

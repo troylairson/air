@@ -18,8 +18,9 @@ html, body {
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
-  cursor: none;
 }
+
+body.idle-cursor { cursor: none; }
 
 body {
   display: flex;
