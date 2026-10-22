@@ -189,6 +189,9 @@ Goal: the display comes back by itself after a power cut, and changes take one c
      after 3 seconds without movement.
    - **Zoom and pan:** scroll, pinch or use the +/− buttons to zoom, and drag to move the map. It
      returns to the home view a minute after you stop (`map.recenterSeconds`).
+   - **Pick a plane:** click any plane on the map to show it in the card, with its planned route.
+     Click the map (or the same plane) to go back to the closest one; it also goes back by itself
+     after `map.recenterSeconds`. This works in the map-only view too.
    - **Map only:** the "Map only" button (bottom left, shown while the mouse moves) or the `C` key
      hides the card and list; press again to bring them back. Each browser remembers its choice.
    - **Keep it awake:** browsers only let a page keep the screen on over HTTPS, so set the
@@ -252,6 +255,7 @@ possible.
 | `listCount` | `5` | Most rows under the main card (fewer if the screen is short) |
 | `sources` | FreeFlight | Data URLs tried in order. `{lat}`, `{lon}` and `{radius}` are filled in. |
 | `routeUrl` | adsbdb via nginx | Route lookup URL. `{callsign}` is filled in. |
+| `airlineUrl` | adsbdb via nginx | Airline-name lookup URL. `{code}` (the callsign's ICAO prefix) is filled in. |
 | `clock24h` | `true` | 24-hour clock |
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
 | `map.enabled` | `true` | Live map behind the cards. `false` gives the plain card-and-list page. |
@@ -272,6 +276,9 @@ within a minute.
   from home itself. Swapping the data source is a config change.
 - Routes come from adsbdb, looked up once per callsign and cached by nginx for 24 hours, including
   "unknown" answers. A flight with no route still shows; the display never guesses one.
+- When adsbdb has no route (or no airline) for a flight, the airline is looked up from the
+  callsign's three-letter ICAO prefix (DAL1605 → Delta) through adsbdb's airline lookup, cached for
+  7 days.
 - If a fetch fails, the page keeps the last data and marks it stale. It never goes blank.
 - Planes move smoothly between the 5-second updates: the page moves each one forward from its last
   known position at its reported speed and heading, using the time the feed says the position was

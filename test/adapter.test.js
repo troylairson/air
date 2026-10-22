@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -129,4 +129,19 @@ test('project position: 360 kt for 10 s is 1 nm', () => {
   assert.ok(Math.abs(distanceNm(51, 0, lat, lon) - 1) < 0.001 && lon === 0);
   const [lat2, lon2] = projectPosition(51, 0, 90, 360, 10); // due east
   assert.ok(Math.abs(distanceNm(51, 0, lat2, lon2) - 1) < 0.001 && Math.abs(lat2 - 51) < 1e-9);
+});
+
+test('airline code from callsign', () => {
+  assert.equal(airlineCode('DAL1605'), 'DAL');
+  assert.equal(airlineCode('KSF44'), 'KSF');
+  assert.equal(airlineCode('BAW9AP'), 'BAW');
+  assert.equal(airlineCode('N333FA'), null);
+  assert.equal(airlineCode('GABCD'), null);
+  assert.equal(airlineCode(null), null);
+});
+
+test('airline name from an adsbdb airline response (list or object)', () => {
+  assert.equal(parseAirline({ response: [{ name: 'Other', icao: 'XXX' }, { name: 'Delta Air Lines', icao: 'DAL' }] }, 'DAL'), 'Delta Air Lines');
+  assert.equal(parseAirline({ response: { name: 'Breeze Airways', icao: 'MXY' } }, 'MXY'), 'Breeze Airways');
+  assert.equal(parseAirline({ response: 'unknown airline' }, 'ZZZ'), null);
 });

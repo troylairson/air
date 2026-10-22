@@ -13,7 +13,8 @@ const FRAME_MS = 50; // move planes at most 20 times a second
 const PLANE_SVG =
   '<svg viewBox="0 0 24 24"><path d="M12 1.5c.8 0 1.4.9 1.4 2.2v5.4l8.1 4.6v2.1l-8.1-2.4v4.8l2.3 1.7V21l-3.7-1.1L8.3 21v-1.1l2.3-1.7v-4.8l-8.1 2.4v-2.1l8.1-4.6V3.7c0-1.3.6-2.2 1.4-2.2z"/></svg>';
 
-export function createMap(element, config) {
+// onSelect(hex) is called when a plane is clicked, and onSelect(null) for a click on the map.
+export function createMap(element, config, { onSelect } = {}) {
   const { home, radiusNm, fetchRadiusMultiplier, map: opts } = config;
   const map = L.map(element, {
     zoomControl: false,
@@ -25,6 +26,7 @@ export function createMap(element, config) {
     wheelPxPerZoomLevel: 120,
   });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
+  map.on('click', () => onSelect?.(null));
   L.tileLayer(opts.tileUrl, { attribution: opts.attribution, subdomains: 'abcd', maxZoom: 19 }).addTo(map);
   element.classList.toggle('dark-tiles', Boolean(opts.darkTiles));
   element.style.setProperty('--tile-brightness', String(opts.tileBrightness));
@@ -153,7 +155,9 @@ export function createMap(element, config) {
       let p = planes.get(a.hex);
       const base = { lat: a.lat, lon: a.lon, time: a.positionTime ?? now, speedKt: a.speedKt, track: a.track };
       if (!p) {
-        const marker = L.marker([a.lat, a.lon], { icon: planeIcon, interactive: false, keyboard: false }).addTo(map);
+        const marker = L.marker([a.lat, a.lon], { icon: planeIcon, keyboard: false }).addTo(map);
+        const hex = a.hex;
+        marker.on('click', () => onSelect?.(hex));
         const tail = L.polyline([], { className: 'map-trail', opacity: 0.9, interactive: false }).addTo(tailLayer);
         p = { marker, tail, trail: [], base, error: null };
         planes.set(a.hex, p);

@@ -158,3 +158,19 @@ export function greatCirclePoints(lat1, lon1, lat2, lon2, segments = 64) {
   }
   return points;
 }
+
+// Airline ICAO code from an airline-style callsign: three letters then a digit (DAL1605 -> DAL,
+// KSF44 -> KSF). Registrations used as callsigns (N333FA, GABCD) don't match.
+export function airlineCode(callsign) {
+  const m = /^([A-Z]{3})\d[0-9A-Z]*$/.exec(callsign ?? '');
+  return m ? m[1] : null;
+}
+
+// adsbdb /v0/airline/<icao> body -> airline name, or null. The response is a list of matches
+// (an object on some versions); prefer the one whose ICAO code is the one asked for.
+export function parseAirline(json, icao) {
+  const resp = json?.response;
+  const list = Array.isArray(resp) ? resp : resp && typeof resp === 'object' ? [resp] : [];
+  const match = list.find((a) => a?.icao === icao) ?? list[0];
+  return str(match?.name);
+}

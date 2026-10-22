@@ -224,6 +224,19 @@ body.cards-hidden main { display: none; }
 .map-plane-body svg { width: 100%; height: 100%; fill: #c9d4e2; filter: drop-shadow(0 1px 2px #000); }
 .map-plane.is-hero .map-plane-body svg { fill: var(--accent); transform: scale(1.35); }
 .map-plane.lost { opacity: 0.35; }
+.leaflet-marker-icon.map-plane { cursor: pointer; }
+
+/* A plane picked on the map */
+.picked {
+  font-size: 0.8rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: -0.6rem;
+}
+body.with-map .hero { pointer-events: auto; } /* clicks on the card don't fall through to the map */
+body.cards-hidden.has-selection main { display: flex; } /* map-only view still shows a picked plane */
+body.cards-hidden.has-selection .list { display: none; }
 
 .map-plane-label {
   position: absolute;

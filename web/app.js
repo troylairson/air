@@ -1,4 +1,4 @@
-import { parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName } from './adapter.js';
+import { parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, airlineCode, parseAirline } from './adapter.js';
 import { createMap } from './map.js';
 
 const DEFAULTS = {
@@ -10,6 +10,7 @@ const DEFAULTS = {
   listCount: 5,
   sources: ['/api/aircraft/{lat}/{lon}/{radius}'],
   routeUrl: '/api/route/{callsign}',
+  airlineUrl: '/api/airline/{code}',
   clock24h: true,
   night: { enabled: false, start: '23:00', end: '06:30', brightness: 0.25 },
   map: {
@@ -36,6 +37,8 @@ const state = {
   stale: false,
   error: null,
   routes: new Map(), // callsign -> { route, retryAt }
+  airlines: new Map(), // ICAO code -> { name, retryAt }
+  selected: null, // hex of the plane clicked on the map, shown in the card instead of the closest
   map: null, // see map.js; null when disabled
 };
 
@@ -126,10 +129,29 @@ async function lookupRoute(callsign) {
   } catch {
     // network error: retried after ROUTE_RETRY_MS
   }
+  // No route, or a route without an airline: name the airline from the callsign's prefix instead.
+  const code = airlineCode(callsign);
+  if (code && !state.routes.get(callsign)?.route?.airline) await lookupAirline(code);
   render();
 }
 
+async function lookupAirline(code) {
+  const cached = state.airlines.get(code);
+  if (cached && (cached.name !== undefined || Date.now() < cached.retryAt)) return;
+  state.airlines.set(code, { name: undefined, retryAt: Date.now() + ROUTE_RETRY_MS });
+  try {
+    const { ok, status, json } = await fetchJson(state.config.airlineUrl.replace('{code}', encodeURIComponent(code)));
+    if (ok) state.airlines.set(code, { name: parseAirline(json, code) });
+    else if (status === 404) state.airlines.set(code, { name: null });
+  } catch {
+    // network error: retried after ROUTE_RETRY_MS
+  }
+}
+
 const routeFor = (a) => (a.callsign ? state.routes.get(a.callsign)?.route ?? null : null);
+const airlineFor = (a) => routeFor(a)?.airline ?? state.airlines.get(airlineCode(a.callsign))?.name ?? null;
+
+const lookupFor = (a) => a.callsign && !isPrivateFlight(a) && lookupRoute(a.callsign);
 
 async function refresh() {
   const { altitudeFt } = state.config;
@@ -139,7 +161,9 @@ async function refresh() {
     state.lastUpdate = new Date();
     state.stale = false;
     state.error = null;
-    visible().forEach((a) => a.callsign && !isPrivateFlight(a) && lookupRoute(a.callsign));
+    if (state.selected && !state.aircraft.some((a) => a.hex === state.selected)) state.selected = null; // gone
+    const { hero, rest } = cardAircraft();
+    [hero, ...rest].forEach((a) => a && lookupFor(a));
   } catch (err) {
     state.stale = true;
     state.error = err.message || String(err);
@@ -148,13 +172,30 @@ async function refresh() {
   setTimeout(refresh, state.config.refreshSeconds * 1000);
 }
 
-// Hero = closest aircraft inside the display radius; list = the next ones inside the wider fetch radius.
-function visible() {
-  if (!state.aircraft) return [];
+// Card = the plane clicked on the map, else the closest one inside the display radius;
+// list = the next ones inside the wider fetch radius.
+function cardAircraft() {
+  if (!state.aircraft) return { hero: null, rest: [] };
   const { radiusNm, fetchRadiusMultiplier, listCount } = state.config;
   const wide = state.aircraft.filter((a) => a.distanceNm <= radiusNm * fetchRadiusMultiplier);
-  const hero = wide[0] && wide[0].distanceNm <= radiusNm ? wide[0] : null;
-  return hero ? wide.slice(0, listCount + 1) : wide.slice(0, listCount);
+  const picked = state.selected && state.aircraft.find((a) => a.hex === state.selected);
+  const hero = picked || (wide[0] && wide[0].distanceNm <= radiusNm ? wide[0] : null);
+  return { hero, rest: wide.filter((a) => a !== hero).slice(0, listCount) };
+}
+
+// Clicking a plane on the map shows it in the card; clicking the map, the same plane again, or
+// map.recenterSeconds without touching anything goes back to the closest one.
+let selectTimer;
+function selectPlane(hex) {
+  state.selected = hex && hex !== state.selected ? hex : null;
+  clearTimeout(selectTimer);
+  const { recenterSeconds } = state.config.map;
+  if (state.selected && recenterSeconds > 0) {
+    selectTimer = setTimeout(() => selectPlane(null), recenterSeconds * 1000);
+  }
+  const picked = state.aircraft?.find((a) => a.hex === state.selected);
+  if (picked) lookupFor(picked);
+  render();
 }
 
 // ---------------------------------------------------------------- render
@@ -179,7 +220,7 @@ function renderHero(a) {
   const priv = isPrivateFlight(a);
   const r = priv ? null : routeFor(a);
   // Private flights: model as the title, registration once below it, no route lookup.
-  const title = priv ? modelName(a) || a.registration || 'Private aircraft' : r?.airline || a.registration || 'Unknown operator';
+  const title = priv ? modelName(a) || a.registration || 'Private aircraft' : airlineFor(a) || a.registration || 'Unknown operator';
   const flight = priv ? a.registration || a.hex.toUpperCase() : r?.flightNumber || a.callsign;
   const subtitle = !priv && a.callsign !== flight ? a.callsign : null;
   const route = priv
@@ -187,7 +228,8 @@ function renderHero(a) {
     : r?.origin && r?.destination
       ? `${placeName(r.origin)} <span class="to">→</span> ${placeName(r.destination)}`
       : '<span class="muted">Route unknown</span>';
-  return `
+  const picked = a.hex === state.selected ? '<div class="picked">Selected · click the map to go back</div>' : '';
+  return `${picked}
     <div class="hero-top">
       <div>
         <div class="airline">${esc(title)}</div>
@@ -229,10 +271,9 @@ function render() {
       : '<div class="idle-title">Loading…</div>';
     list.innerHTML = '';
   } else {
-    const shown = visible();
     const { radiusNm, fetchRadiusMultiplier } = state.config;
-    const heroAc = shown[0] && shown[0].distanceNm <= radiusNm ? shown[0] : null;
-    const rest = heroAc ? shown.slice(1) : shown;
+    const { hero: heroAc, rest } = cardAircraft();
+    document.body.classList.toggle('has-selection', Boolean(state.selected));
     if (heroAc) {
       hero.className = 'hero';
       hero.innerHTML = renderHero(heroAc);
@@ -287,7 +328,7 @@ function fitMap() {
 function setupMap() {
   if (!state.config.map.enabled || typeof L === 'undefined') return; // map off, or Leaflet failed to load
   document.body.classList.add('with-map');
-  state.map = createMap($('map'), state.config);
+  state.map = createMap($('map'), state.config, { onSelect: selectPlane });
   setCardsHidden(readSetting('cardsHidden') === '1');
   $('cards-toggle').addEventListener('click', () => setCardsHidden(!document.body.classList.contains('cards-hidden')));
   window.addEventListener('keydown', (e) => {

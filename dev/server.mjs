@@ -21,7 +21,7 @@ const FLIGHTS = [
   { hex: 'a8c2f1', flight: 'UAL901  ', r: 'N2645U', t: 'B77W', desc: 'BOEING 777-300ER', alt: 11000, gs: 300, rate: 0, d: 3.8 },
   { hex: '3c6dd0', flight: 'DLH4UN  ', r: 'D-AIZR', t: 'A20N', alt: 24000, gs: 420, rate: 0, d: 4.7 },
   { hex: '43c6f2', flight: null, r: 'ZZ336', t: 'A332', alt: 18000, gs: 380, rate: 0, d: 5.4 },
-  { hex: '485f33', flight: 'XYZ999  ', t: 'E190', alt: 9000, gs: 280, rate: -1200, d: 5.9 },
+  { hex: '485f33', flight: 'AAL2401 ', r: 'N953UW', t: 'E190', alt: 9000, gs: 280, rate: -1200, d: 5.9 }, // airline known, route not
   { hex: 'a3a172', flight: 'N333FA  ', r: 'N333FA', t: 'P28A', desc: 'PIPER PA-28-140/150/160/180', alt: 1800, gs: 93, rate: 0, d: 1.4 },
   { hex: '000001', flight: 'GND1    ', t: 'A320', alt: 'ground', gs: 10, d: 0.3 },
 ];
@@ -33,6 +33,8 @@ const AIRPORTS = {
   SFO: ['San Francisco', 37.6213, -122.379],
   FRA: ['Frankfurt', 50.0379, 8.5622],
 };
+
+const AIRLINES = { BAW: 'British Airways', EIN: 'Aer Lingus', UAL: 'United Airlines', DLH: 'Lufthansa', AAL: 'American Airlines' };
 
 const ROUTES = {
   BAW117: { airline: 'British Airways', iata: 'BA117', o: 'JFK', d: 'LHR' },
@@ -71,6 +73,12 @@ http
       if (down) return send(res, 502, { error: 'simulated outage' });
       const ac = empty ? [] : aircraft({ lat: Number(m[1]), lon: Number(m[2]) });
       return send(res, 200, { ac, msg: 'No error', now: Date.now(), total: ac.length });
+    }
+    m = p.match(/^\/api\/airline\/(.+)$/);
+    if (m) {
+      const icao = decodeURIComponent(m[1]).toUpperCase();
+      if (!AIRLINES[icao]) return send(res, 404, { response: 'unknown airline' });
+      return send(res, 200, { response: [{ name: AIRLINES[icao], icao, iata: null, country: null }] });
     }
     m = p.match(/^\/api\/route\/(.+)$/);
     if (m) {
