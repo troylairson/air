@@ -1,0 +1,9 @@
+{
+  "name": "overhead-display",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "dev": "node dev/server.mjs"
+  }
+}

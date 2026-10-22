@@ -1,0 +1,13 @@
+{
+  "home": { "lat": 51.4700, "lon": -0.4543 },
+  "radiusNm": 3,
+  "fetchRadiusMultiplier": 2,
+  "altitudeFt": { "min": 0, "max": 45000 },
+  "units": { "altitude": "ft", "speed": "kt", "distance": "nm" },
+  "refreshSeconds": 5,
+  "listCount": 5,
+  "sources": ["/api/aircraft/{lat}/{lon}/{radius}"],
+  "routeUrl": "/api/route/{callsign}",
+  "clock24h": true,
+  "night": { "enabled": false, "start": "23:00", "end": "06:30", "brightness": 0.25 }
+}
