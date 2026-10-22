@@ -215,14 +215,18 @@ const angleBetween = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
 
 // The leg of `route` the aircraft is plausibly flying, as { origin, destination }, or null when no
 // leg fits (a stale or wrong route). A leg fits when the aircraft is
-// - within max(100 nm, 20% of the leg) of the straight great-circle line (real paths wander),
-// - between the two airports (50 nm slack at each end), and
+// - within max(90 nm, 12% of the leg) of the straight great-circle line (real paths wander),
+// - between the two airports (50 nm slack at each end),
 // - heading towards the destination (within 90°; not required within 40 nm of either airport,
-//   where departures and approaches turn).
-// Of the legs that fit, one whose direction matches the heading wins (it matters next to an
-// airport a multi-leg route both reaches and leaves), then the one closest to its line.
-// Airports without coordinates can't be checked; such a leg is accepted only if it's the whole route.
-export function pickLeg(route, a) {
+//   where departures and approaches turn), and
+// - if it's below 10,000 ft, within 100 nm of one of the leg's airports: that low, an airliner is
+//   climbing out or coming in to land. Legs under 300 nm are exempt (short hops cruise low).
+// `prefer` ({ origin, destination } codes of the leg chosen last time) wins whenever it still
+// fits, so a flight doesn't flip between legs. Otherwise one whose direction matches the heading
+// wins (it matters next to an airport a multi-leg route both reaches and leaves), then the one
+// closest to its line. Airports without coordinates can't be checked; such a leg is accepted only
+// if it's the whole route.
+export function pickLeg(route, a, prefer = null) {
   const airports = route?.airports ?? [];
   let best = null;
   for (let i = 0; i + 1 < airports.length; i++) {
@@ -234,13 +238,23 @@ export function pickLeg(route, a) {
     }
     const length = distanceNm(o.lat, o.lon, d.lat, d.lon);
     const { cross, along } = trackDistances(o, d, a);
-    const nearAirport = Math.min(distanceNm(a.lat, a.lon, o.lat, o.lon), distanceNm(a.lat, a.lon, d.lat, d.lon)) < 40;
+    const toNearest = Math.min(distanceNm(a.lat, a.lon, o.lat, o.lon), distanceNm(a.lat, a.lon, d.lat, d.lon));
     const offLine = Math.abs(cross);
     const noTrack = a.track === null || a.track === undefined;
     const headingOk = !noTrack && angleBetween(a.track, bearingDeg(a.lat, a.lon, d.lat, d.lon)) <= 90;
-    const fits = offLine <= Math.max(100, 0.2 * length) && along >= -50 && along <= length + 50 && (noTrack || headingOk || nearAirport);
-    const better = !best || (headingOk !== best.headingOk ? headingOk : offLine < best.offLine);
-    if (fits && better) best = { origin: o, destination: d, checked: true, offLine, headingOk };
+    const lowAndFar = typeof a.altitudeFt === 'number' && a.altitudeFt < 10000 && length >= 300 && toNearest > 100;
+    const fits =
+      offLine <= Math.max(90, 0.12 * length) &&
+      along >= -50 &&
+      along <= length + 50 &&
+      (noTrack || headingOk || toNearest < 40) &&
+      !lowAndFar;
+    if (!fits) continue;
+    const preferred = prefer?.origin === o.code && prefer?.destination === d.code;
+    const better =
+      !best ||
+      (preferred !== best.preferred ? preferred : headingOk !== best.headingOk ? headingOk : offLine < best.offLine);
+    if (better) best = { origin: o, destination: d, checked: true, offLine, headingOk, preferred };
   }
   return best && { origin: best.origin, destination: best.destination, checked: best.checked };
 }

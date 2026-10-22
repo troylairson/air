@@ -262,7 +262,7 @@ possible.
 | `clock24h` | `true` | 24-hour clock |
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
 | `map.enabled` | `true` | Live map behind the cards. `false` gives the plain card-and-list page. |
-| `map.trailMinutes` | `15` | How much of each aircraft's trail to keep |
+| `map.trailMinutes` | `20` | How much of each aircraft's trail to keep (5 minutes when over 600 planes are loaded) |
 | `map.tileUrl`, `map.attribution` | OpenStreetMap | Map background tiles and their credit line; any Leaflet tile URL works |
 | `map.darkTiles` | `true` | Invert light tiles into a dark map. Set `false` for tiles that are already dark. |
 | `map.tileBrightness` | `0.9` | How light the darkened map is (try 0.7 to 1.2) |
@@ -278,17 +278,24 @@ within a minute.
 - `web/adapter.js` turns ADSBExchange-v2-style records (FreeFlight's `/v2/point`, adsb.lol,
   airplanes.live, or a readsb `aircraft.json`) into one shape, and works out distance and bearing
   from home itself. Swapping the data source is a config change.
-- Routes are looked up once per callsign: first in the community
+- Routes are looked up once per callsign, from two sources at once: the community
   [standing-data](https://github.com/vradarserver/standing-data) route list (updated daily, and it
-  keeps multi-leg flights such as JFK → CVG → JFK), then from adsbdb (cached by nginx for 24
-  hours) for callsigns that list doesn't have. nginx fetches the standing-data CSV files from
-  GitHub as needed (one per airline, plus small airport files) and keeps each for a day.
-- Route databases go stale, especially for regional airlines that reuse flight numbers, so every
-  route is checked against where the plane actually is. A leg counts only if the plane is within
-  100 nm (or 20% of the leg) of the straight line between its airports, between them, and heading
-  towards the destination (not required within 40 nm of either airport). The card shows the leg
-  that fits; if none does it says "Route unconfirmed" and no route line is drawn. A flight with no
-  route still shows; the display never guesses one.
+  keeps multi-leg flights such as JFK → CVG → JFK) and adsbdb. nginx fetches the standing-data CSV
+  files from GitHub as needed (one per airline, plus small airport files) and caches them, and
+  adsbdb's answers, for a day.
+- Both sources go stale, especially for regional airlines that reuse flight numbers, so every
+  route is checked against where the plane actually is, and the first source whose route fits is
+  shown. A leg fits only if the plane is
+  - within 90 nm (or 12% of the leg) of the straight line between its airports, and between them;
+  - heading towards the destination (not required within 40 nm of either airport, where planes
+    turn);
+  - if it's below 10,000 ft, within 100 nm of one of the leg's airports, since that low an airliner
+    is climbing out or landing (legs under 300 nm are exempt).
+
+  Once a flight's leg is shown, it's kept while it still fits, so the card doesn't flip between
+  directions. If nothing fits, the card says "Route unconfirmed" and no route line is drawn; the
+  display never guesses. For example, the standing data lists ENY4077 as Chicago → Halifax →
+  Chicago; seen low over Akron, that's rejected, and adsbdb's route is shown if it fits.
 - When adsbdb has no route (or no airline) for a flight, the airline is looked up from the
   callsign's three-letter ICAO prefix (DAL1605 → Delta) through adsbdb's airline lookup, cached for
   7 days.
@@ -302,14 +309,18 @@ within a minute.
   straight-winged plane, small airliners (A2) a slightly smaller jet, heavies (A5) a bigger one.
   Aircraft without a category fall back to their type code (R44, EC35, B407 and similar are
   helicopters; C172, PA-28, SR22 and similar are light).
-- At the home view the page makes one request, for the home area. Once the map is zoomed or
-  panned past it, it also requests the circle around what's on screen (up to 250 nm). FreeFlight
-  rounds every request to a grid point and a fixed radius and caches it, so this adds about one
-  upstream request every 5 seconds, not more. Route and airline lookups stay limited to the card,
-  the list and a picked plane.
-- Planes near home (and a picked one) are full map markers with labels and trails. Everything else
-  is drawn on a single canvas, which stays smooth with well over 1,000 planes; those get labels
-  once you zoom in far enough and no trails. Click any plane to pick it.
+- The page requests the home area (for the card and list) and the circle around what's on screen,
+  up to 250 nm. FreeFlight rounds every request to a grid point and a fixed radius and caches it,
+  so at the home view both come from the same upstream query, and zoomed out it's about one
+  upstream request every 5 seconds. Route and airline lookups stay limited to the card, the list
+  and a picked plane.
+- Planes near home (and a picked one) are full map markers with labels. Everything else is drawn on
+  a single canvas, which stays smooth with well over 1,000 planes; those get labels once you zoom in
+  far enough. Click any plane to pick it.
+- Every plane leaves a trail (`map.trailMinutes`, 20 minutes), built from the positions the page
+  receives, so it carries on as a plane leaves the home area. With over 600 planes loaded, trails
+  are cut to 5 minutes. A trail starts afresh after a gap over 2 minutes or an impossible jump
+  (faster than 800 kt), instead of drawing a line across the map.
 - The map is drawn by `web/map.js` with Leaflet. None of the data sources keep flight history, so
   each trail is built in the browser from the positions it receives every few seconds: it starts
   when an aircraft first comes within the fetch radius, and a page reload clears it. The dashed

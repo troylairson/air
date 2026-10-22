@@ -5,7 +5,7 @@
 // Two kinds of plane: the few near home (and a picked one) are full markers with labels and
 // trails; everything else in view, up to ~1,500 when zoomed out to 250 nm, is drawn on one
 // canvas ("bulk"), which stays smooth where 1,500 HTML markers would not.
-import { greatCirclePoints, projectPosition, sizeClass } from './adapter.js';
+import { greatCirclePoints, projectPosition, sizeClass, distanceNm } from './adapter.js';
 
 const NM_TO_M = 1852;
 const FORGET_AFTER_MS = 60 * 1000; // drop an aircraft's marker and trail when unseen this long
@@ -81,15 +81,40 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   const trailLayer = L.layerGroup().addTo(map);
   const tailLayer = L.layerGroup().addTo(map); // joins each trail's last point to the moving plane
   const routeLayer = L.layerGroup().addTo(map);
-  // hex -> { marker, tail, trail: [[lat, lon, t]], lastSeen, base, error, shown }
+  // hex -> { marker, tail, lastSeen, base, error, shown }: planes drawn as markers
   const planes = new Map();
+  // hex -> { points: [[lat, lon, t]], lastSeen }: every plane's trail, marker or canvas, so a trail
+  // carries on when a plane moves out of the home area onto the canvas (or is picked back off it)
+  const trails = new Map();
+  function record(a, now) {
+    let t = trails.get(a.hex);
+    if (!t) trails.set(a.hex, (t = { points: [] }));
+    const last = t.points[t.points.length - 1];
+    if (!last || last[0] !== a.lat || last[1] !== a.lon) {
+      // A long gap or an impossible jump (a glitch, or a plane back after a while): start the trail
+      // again rather than draw a straight line across the map.
+      if (last) {
+        const hours = (now - last[2]) / 3_600_000;
+        if (hours > 2 / 60 || distanceNm(last[0], last[1], a.lat, a.lon) / Math.max(hours, 1 / 3600) > 800) t.points = [];
+      }
+      t.points.push([a.lat, a.lon, now]);
+    }
+    t.lastSeen = now;
+  }
+  function pruneTrails(now) {
+    const cutoff = now - opts.trailMinutes * 60 * 1000;
+    for (const [hex, t] of trails) {
+      if (now - t.lastSeen > FORGET_AFTER_MS) trails.delete(hex);
+      else if (t.points.length && t.points[0][2] < cutoff) t.points = t.points.filter((pt) => pt[2] >= cutoff);
+    }
+  }
+  const trailPoints = (hex) => trails.get(hex)?.points ?? [];
 
   // Frames map.viewRadiusNm around home in the part of the screen the cards don't cover.
   let homePadding = null;
   function fit(padding = homePadding) {
     if (!padding) return;
     homePadding = padding;
-    atHome = true;
     const bounds = L.latLng(home.lat, home.lon).toBounds(2 * (opts.viewRadiusNm ?? radiusNm * fetchRadiusMultiplier) * NM_TO_M);
     map.fitBounds(bounds, { paddingTopLeft: padding.topLeft, paddingBottomRight: padding.bottomRight, animate: false });
     limitZoom();
@@ -102,11 +127,10 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
     return Math.max(map.distance(c, b.getNorthEast()), map.distance(c, b.getSouthWest())) / NM_TO_M;
   }
 
-  // The view the map shows. atHome: it's the home view fit() set, not one someone dragged or zoomed to.
-  let atHome = false;
+  // The view the map shows.
   function view() {
     const c = map.getCenter();
-    return { lat: c.lat, lon: c.lng, radiusNm: Math.min(MAX_VIEW_RADIUS_NM, viewReachNm()), atHome };
+    return { lat: c.lat, lon: c.lng, radiusNm: Math.min(MAX_VIEW_RADIUS_NM, viewReachNm()) };
   }
   map.on('moveend', () => onViewChange?.(view()));
   // Zoomed far out, the home-area markers sit on top of each other: keep only the hero's label.
@@ -122,7 +146,6 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   // You can drag and zoom; the view returns home after map.recenterSeconds without touching it.
   let recenterTimer;
   const touched = () => {
-    atHome = false;
     clearTimeout(recenterTimer);
     if (opts.recenterSeconds > 0) recenterTimer = setTimeout(() => fit(), opts.recenterSeconds * 1000);
   };
@@ -158,11 +181,10 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
 
   function drawTrails(heroHex) {
     trailLayer.clearLayers();
-    const cutoff = Date.now() - opts.trailMinutes * 60 * 1000;
-    for (const [hex, p] of planes) {
-      p.trail = p.trail.filter((pt) => pt[2] >= cutoff);
-      if (p.trail.length < 2) continue;
-      const pts = p.trail.map(([lat, lon]) => [lat, lon]);
+    for (const hex of planes.keys()) {
+      const trail = trailPoints(hex);
+      if (trail.length < 2) continue;
+      const pts = trail.map(([lat, lon]) => [lat, lon]);
       const segments = pts.length - 1;
       const bands = Math.min(TRAIL_BANDS, segments);
       for (let b = 0; b < bands; b++) {
@@ -199,6 +221,58 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
     return left > 0 ? [lat + p.error.dLat * left, lon + p.error.dLon * left] : [lat, lon];
   }
 
+  // ---- Canvas planes' trails: their own canvas under the canvas planes, redrawn only when data
+  // arrives or the map is zoomed or moved (it pans along with the map in between). Each frame only
+  // adds the short line from a trail's last point to its moving plane, on the planes' canvas.
+  map.createPane('bulkTrails').style.zIndex = '440';
+  const trailCanvas = L.DomUtil.create('canvas', 'map-bulk', map.getPane('bulkTrails'));
+  const trailCtx = trailCanvas.getContext('2d');
+  const TRAIL_ALPHAS = [0.12, 0.25, 0.45, 0.7]; // by age, oldest quarter faintest
+
+  function sizeCanvas(c, size, ratio) {
+    if (c.width !== size.x * ratio || c.height !== size.y * ratio) {
+      c.width = size.x * ratio;
+      c.height = size.y * ratio;
+      c.style.width = `${size.x}px`;
+      c.style.height = `${size.y}px`;
+    }
+  }
+
+  function drawBulkTrails() {
+    const size = map.getSize();
+    const ratio = window.devicePixelRatio || 1;
+    sizeCanvas(trailCanvas, size, ratio);
+    L.DomUtil.setPosition(trailCanvas, map.containerPointToLayerPoint([0, 0]));
+    trailCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    trailCtx.clearRect(0, 0, size.x, size.y);
+    if (!bulk.size) return;
+    const now = Date.now();
+    // with many planes on screen, keep trails shorter so the map stays readable
+    const maxAge = (bulk.size > 600 ? Math.min(5, opts.trailMinutes) : opts.trailMinutes) * 60 * 1000;
+    const bands = TRAIL_ALPHAS.map(() => new Path2D());
+    for (const hex of bulk.keys()) {
+      const points = trailPoints(hex);
+      for (let i = 1; i < points.length; i++) {
+        const age = now - points[i][2];
+        if (age > maxAge) continue;
+        const a = map.latLngToContainerPoint([points[i - 1][0], points[i - 1][1]]);
+        const b = map.latLngToContainerPoint([points[i][0], points[i][1]]);
+        const band = bands[Math.min(TRAIL_ALPHAS.length - 1, Math.floor((1 - age / maxAge) * TRAIL_ALPHAS.length))];
+        band.moveTo(a.x, a.y);
+        band.lineTo(b.x, b.y);
+      }
+    }
+    trailCtx.strokeStyle = opts.planeColor;
+    trailCtx.lineWidth = 1.5;
+    trailCtx.lineCap = 'round';
+    bands.forEach((path, i) => {
+      trailCtx.globalAlpha = TRAIL_ALPHAS[i];
+      trailCtx.stroke(path);
+    });
+    trailCtx.globalAlpha = 1;
+  }
+  map.on('zoomend moveend resize', drawBulkTrails);
+
   // ---- Bulk planes on a canvas, in a pane between the trails (400) and the markers (600).
   map.createPane('bulk').style.zIndex = '450';
   const canvas = L.DomUtil.create('canvas', 'map-bulk', map.getPane('bulk'));
@@ -216,15 +290,36 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
     return best;
   }
 
+  // Each canvas symbol, gold with its dark outline, drawn once per size class and screen density.
+  const sprites = new Map();
+  function sprite(size, ratio) {
+    const key = `${size}@${ratio}`;
+    if (!sprites.has(key)) {
+      const unit = (BULK_PX * (BULK_SCALE[size] ?? 1)) / 24; // CSS px per symbol-grid unit
+      const pad = 2;
+      const css = 24 * unit + pad * 2;
+      const c = document.createElement('canvas');
+      c.width = c.height = Math.ceil(css * ratio);
+      const g = c.getContext('2d');
+      g.scale(ratio, ratio);
+      g.translate(pad, pad);
+      g.scale(unit, unit);
+      g.fillStyle = opts.planeColor;
+      g.strokeStyle = 'rgba(0, 0, 0, 0.85)'; // same dark outline as the markers
+      g.lineWidth = 1.4;
+      g.lineJoin = 'round';
+      const shape = BULK_SHAPES[size] ?? BULK_SHAPES.large;
+      g.stroke(shape);
+      g.fill(shape);
+      sprites.set(key, { canvas: c, size: c.width / ratio, unit });
+    }
+    return sprites.get(key);
+  }
+
   function drawBulk(now) {
     const size = map.getSize();
     const ratio = window.devicePixelRatio || 1;
-    if (canvas.width !== size.x * ratio || canvas.height !== size.y * ratio) {
-      canvas.width = size.x * ratio;
-      canvas.height = size.y * ratio;
-      canvas.style.width = `${size.x}px`;
-      canvas.style.height = `${size.y}px`;
-    }
+    sizeCanvas(canvas, size, ratio);
     L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0])); // follow panning
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, size.x, size.y);
@@ -237,29 +332,41 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
       onScreen.push([hex, b, pt]);
     }
     const labels = map.getZoom() >= BULK_LABEL_ZOOM && onScreen.length <= BULK_LABEL_MAX;
+    // join each trail's last recorded point to where its plane is drawn now (zoomed out, that gap
+    // is a pixel or two, so it's skipped there, where most planes are)
+    ctx.strokeStyle = opts.planeColor;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    for (const [hex, , pt] of map.getZoom() >= BULK_LABEL_ZOOM ? onScreen : []) {
+      const points = trailPoints(hex);
+      const last = points[points.length - 1];
+      if (!last) continue;
+      const from = map.latLngToContainerPoint([last[0], last[1]]);
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(pt.x, pt.y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = opts.planeColor;
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)'; // same dark outline as the markers
-    ctx.lineWidth = 1.4;
-    ctx.lineJoin = 'round';
     for (const [hex, b, pt] of onScreen) {
-      const scale = (BULK_PX / 24) * (BULK_SCALE[b.size] ?? 1);
-      ctx.save();
-      ctx.translate(pt.x, pt.y);
-      ctx.rotate(((b.base.track ?? 0) * Math.PI) / 180);
-      ctx.scale(scale, scale);
-      ctx.translate(-12, -12);
-      const shape = BULK_SHAPES[b.size] ?? BULK_SHAPES.large;
-      ctx.stroke(shape);
-      ctx.fill(shape);
+      // stamp the pre-drawn symbol, rotated to the heading (no per-plane path filling or outlining)
+      const s = sprite(b.size, ratio);
+      const r = ((b.base.track ?? 0) * Math.PI) / 180;
+      const cos = Math.cos(r) * ratio;
+      const sin = Math.sin(r) * ratio;
+      ctx.setTransform(cos, sin, -sin, cos, pt.x * ratio, pt.y * ratio);
+      ctx.drawImage(s.canvas, -s.size / 2, -s.size / 2, s.size, s.size);
       if (b.size === 'heli') {
-        ctx.translate(...ROTOR_CENTER);
+        const k = s.unit;
+        ctx.translate((ROTOR_CENTER[0] - 12) * k, (ROTOR_CENTER[1] - 12) * k);
         ctx.rotate((now / 600) * 2 * Math.PI); // same speed as the markers' CSS rotor
-        ctx.fillRect(-11.5, -0.65, 23, 1.3);
-        ctx.fillRect(-0.65, -11.5, 1.3, 23);
+        ctx.fillRect(-11.5 * k, -0.65 * k, 23 * k, 1.3 * k);
+        ctx.fillRect(-0.65 * k, -11.5 * k, 1.3 * k, 23 * k);
       }
-      ctx.restore();
       drawn.push({ hex, x: pt.x, y: pt.y });
     }
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     if (labels) {
       ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
       ctx.textAlign = 'center';
@@ -277,10 +384,11 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
     if (t - lastFrame < FRAME_MS) return;
     lastFrame = t;
     const now = Date.now();
-    for (const p of planes.values()) {
+    for (const [hex, p] of planes) {
       p.shown = positionAt(p, now);
       p.marker.setLatLng(p.shown);
-      const last = p.trail[p.trail.length - 1];
+      const trail = trailPoints(hex);
+      const last = trail[trail.length - 1];
       p.tail.setLatLngs(last ? [[last[0], last[1]], p.shown] : []);
     }
     drawBulk(now);
@@ -290,6 +398,7 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   // Everything else in view: plain list, drawn on the canvas. labelFor(a) gives plain text.
   function updateBulk(aircraft, labelFor) {
     const now = Date.now();
+    for (const a of aircraft) record(a, now);
     bulk = new Map(
       aircraft.map((a) => [
         a.hex,
@@ -314,7 +423,7 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
         const hex = a.hex;
         marker.on('click', () => onSelect?.(hex));
         const tail = L.polyline([], { className: 'map-trail', opacity: 0.9, interactive: false }).addTo(tailLayer);
-        p = { marker, tail, trail: [], base, error: null };
+        p = { marker, tail, base, error: null };
         planes.set(a.hex, p);
       } else if (p.base.time !== base.time || p.base.lat !== base.lat || p.base.lon !== base.lon) {
         // New data: keep the plane where it's drawn and ease the difference out, so it never jumps.
@@ -325,8 +434,7 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
       }
       stylePlane(p, a, labelFor(a), a === hero);
       p.marker.setZIndexOffset(a === hero ? 1000 : 0);
-      const last = p.trail[p.trail.length - 1];
-      if (!last || last[0] !== a.lat || last[1] !== a.lon) p.trail.push([a.lat, a.lon, now]);
+      record(a, now);
       p.lastSeen = now;
     }
     for (const [hex, p] of planes) {
@@ -342,11 +450,13 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
         if (p.lastSeen !== now) el?.classList.remove('is-hero');
       }
     }
+    pruneTrails(now);
     drawTrails(hero?.hex);
+    drawBulkTrails();
     drawRoute(hero, heroRoute);
   }
 
-  if (location.hash === '#debug') window.overheadDebug = { map, drawnPlanes: () => drawn, bulkCount: () => bulk.size };
+  if (location.hash === '#debug') window.overheadDebug = { map, drawnPlanes: () => drawn, bulkCount: () => bulk.size, trails };
 
   return {
     fit,
