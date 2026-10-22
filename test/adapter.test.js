@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -73,7 +73,7 @@ test('parses an adsbdb route, and returns null for an unknown callsign', () => {
   });
   assert.equal(r.airline, 'British Airways');
   assert.equal(r.flightNumber, 'BA117');
-  assert.deepEqual(r.origin, { code: 'JFK', city: 'New York', name: 'John F Kennedy International Airport' });
+  assert.deepEqual(r.origin, { code: 'JFK', city: 'New York', name: 'John F Kennedy International Airport', lat: null, lon: null });
   assert.equal(r.destination.code, 'EGLL');
   assert.equal(parseRoute({ response: 'unknown callsign' }), null);
 });
@@ -91,4 +91,21 @@ test('model name: title-cases maker words, keeps model codes', () => {
   assert.equal(modelName({ description: 'CESSNA 172 SKYHAWK', type: 'C172' }), 'Cessna 172 Skyhawk');
   assert.equal(modelName({ description: 'AIRBUS A220-300', type: 'BCS3' }), 'Airbus A220-300');
   assert.equal(modelName({ description: null, type: 'SR22' }), 'SR22');
+});
+
+test('great circle: ends at both airports and arcs north between JFK and LHR', () => {
+  const pts = greatCirclePoints(40.6413, -73.7781, 51.47, -0.4543, 64);
+  assert.equal(pts.length, 65);
+  assert.ok(Math.abs(pts[0][0] - 40.6413) < 1e-6 && Math.abs(pts[0][1] + 73.7781) < 1e-6);
+  assert.ok(Math.abs(pts[64][0] - 51.47) < 1e-6 && Math.abs(pts[64][1] + 0.4543) < 1e-6);
+  assert.ok(Math.max(...pts.map((p) => p[0])) > 53); // the great circle bulges north of both ends
+});
+
+test('route keeps airport coordinates for the map', () => {
+  const r = parseRoute({ response: { flightroute: {
+    origin: { iata_code: 'JFK', latitude: 40.6413, longitude: -73.7781 },
+    destination: { iata_code: 'LHR', latitude: 51.47, longitude: -0.4543 },
+  } } });
+  assert.equal(r.origin.lat, 40.6413);
+  assert.equal(r.destination.lon, -0.4543);
 });

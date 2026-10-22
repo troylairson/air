@@ -1,4 +1,5 @@
 import { parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName } from './adapter.js';
+import { createMap } from './map.js';
 
 const DEFAULTS = {
   radiusNm: 3,
@@ -11,6 +12,13 @@ const DEFAULTS = {
   routeUrl: '/api/route/{callsign}',
   clock24h: true,
   night: { enabled: false, start: '23:00', end: '06:30', brightness: 0.25 },
+  map: {
+    enabled: true,
+    tileUrl: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    trailMinutes: 15,
+  },
 };
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -23,6 +31,7 @@ const state = {
   stale: false,
   error: null,
   routes: new Map(), // callsign -> { route, retryAt }
+  map: null, // see map.js; null when disabled
 };
 
 const $ = (id) => document.getElementById(id);
@@ -41,6 +50,7 @@ async function loadConfig() {
     altitudeFt: { ...DEFAULTS.altitudeFt, ...user.altitudeFt },
     units: { ...DEFAULTS.units, ...user.units },
     night: { ...DEFAULTS.night, ...user.night },
+    map: { ...DEFAULTS.map, ...user.map },
   };
   if (typeof config.home?.lat !== 'number' || typeof config.home?.lon !== 'number') {
     throw new Error('config.json needs home.lat and home.lon');
@@ -229,11 +239,53 @@ function render() {
     }
     list.innerHTML = rest.map(renderRow).join('');
     trimList(list);
+    updateMap(heroAc);
   }
 
   const time = state.lastUpdate ? state.lastUpdate.toLocaleTimeString([], { hour12: !state.config.clock24h }) : '–';
   status.className = state.stale ? 'status stale' : 'status';
   status.textContent = state.stale ? `Stale · last update ${time}` : `Updated ${time}`;
+}
+
+// Short name under each plane on the map.
+function mapLabel(a) {
+  if (isPrivateFlight(a)) return esc(a.registration);
+  return esc(routeFor(a)?.flightNumber || a.callsign || a.registration || a.hex.toUpperCase());
+}
+
+function updateMap(heroAc) {
+  if (!state.map) return;
+  const { radiusNm, fetchRadiusMultiplier } = state.config;
+  const wide = state.aircraft.filter((a) => a.distanceNm <= radiusNm * fetchRadiusMultiplier);
+  const heroRoute = heroAc && !isPrivateFlight(heroAc) ? routeFor(heroAc) : null;
+  state.map.update(wide, heroAc, mapLabel, heroRoute);
+}
+
+// Frames the map in the part of the screen the cards don't cover.
+function fitMap() {
+  if (!state.map) return;
+  const header = document.querySelector('header').getBoundingClientRect();
+  const panel = document.querySelector('main').getBoundingClientRect();
+  const gap = 24;
+  const portrait = window.innerHeight > window.innerWidth;
+  state.map.invalidate();
+  state.map.fit(
+    portrait
+      ? { topLeft: [gap, header.bottom + gap], bottomRight: [gap, window.innerHeight * 0.52 + gap] }
+      : { topLeft: [panel.right + gap, header.bottom + gap], bottomRight: [gap, gap] },
+  );
+}
+
+function setupMap() {
+  if (!state.config.map.enabled || typeof L === 'undefined') return; // map off, or Leaflet failed to load
+  document.body.classList.add('with-map');
+  state.map = createMap($('map'), state.config);
+  fitMap();
+  let timer;
+  window.addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(fitMap, 200);
+  });
 }
 
 // Drops list rows that would be cut off at the bottom of the screen.
@@ -269,7 +321,7 @@ function applyNight(now) {
 
 // Reloads the page when a deploy changes config.json or the app files, so the kiosk
 // picks up changes without anyone touching the screen.
-const WATCHED = ['config.json', 'index.html', 'app.js', 'adapter.js', 'style.css'];
+const WATCHED = ['config.json', 'index.html', 'app.js', 'adapter.js', 'map.js', 'style.css'];
 let deployedVersion = null;
 
 async function checkForUpdate() {
@@ -319,6 +371,7 @@ async function start() {
     setTimeout(start, 30000);
     return;
   }
+  setupMap();
   tickClock();
   setInterval(tickClock, 1000);
   checkForUpdate();

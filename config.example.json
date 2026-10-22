@@ -9,5 +9,6 @@
   "sources": ["/api/aircraft/{lat}/{lon}/{radius}"],
   "routeUrl": "/api/route/{callsign}",
   "clock24h": true,
-  "night": { "enabled": false, "start": "23:00", "end": "06:30", "brightness": 0.25 }
+  "night": { "enabled": false, "start": "23:00", "end": "06:30", "brightness": 0.25 },
+  "map": { "enabled": true, "trailMinutes": 15 }
 }

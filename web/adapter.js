@@ -82,7 +82,15 @@ export function parseRoute(json) {
   const fr = json?.response?.flightroute;
   if (!fr || typeof fr !== 'object') return null;
   const airport = (a) =>
-    a ? { code: str(a.iata_code) ?? str(a.icao_code), city: str(a.municipality), name: str(a.name) } : null;
+    a
+      ? {
+          code: str(a.iata_code) ?? str(a.icao_code),
+          city: str(a.municipality),
+          name: str(a.name),
+          lat: num(a.latitude),
+          lon: num(a.longitude),
+        }
+      : null;
   return {
     airline: str(fr.airline?.name),
     flightNumber: str(fr.callsign_iata),
@@ -103,4 +111,28 @@ export function isPrivateFlight(a) {
 export function modelName(a) {
   if (!a.description) return a.type;
   return a.description.replace(/\b[A-Z]{4,}\b/g, (w) => w[0] + w.slice(1).toLowerCase());
+}
+
+// Points along the great circle from point 1 to point 2 (the path a planned route follows),
+// for drawing as a line. Returns [[lat, lon], ...] with `segments` + 1 points.
+export function greatCirclePoints(lat1, lon1, lat2, lon2, segments = 64) {
+  const p1 = [toRad(lat1), toRad(lon1)];
+  const p2 = [toRad(lat2), toRad(lon2)];
+  const d =
+    2 *
+    Math.asin(
+      Math.sqrt(Math.sin((p2[0] - p1[0]) / 2) ** 2 + Math.cos(p1[0]) * Math.cos(p2[0]) * Math.sin((p2[1] - p1[1]) / 2) ** 2),
+    );
+  if (d === 0) return [[lat1, lon1], [lat2, lon2]];
+  const points = [];
+  for (let i = 0; i <= segments; i++) {
+    const f = i / segments;
+    const A = Math.sin((1 - f) * d) / Math.sin(d);
+    const B = Math.sin(f * d) / Math.sin(d);
+    const x = A * Math.cos(p1[0]) * Math.cos(p1[1]) + B * Math.cos(p2[0]) * Math.cos(p2[1]);
+    const y = A * Math.cos(p1[0]) * Math.sin(p1[1]) + B * Math.cos(p2[0]) * Math.sin(p2[1]);
+    const z = A * Math.sin(p1[0]) + B * Math.sin(p2[0]);
+    points.push([toDeg(Math.atan2(z, Math.sqrt(x * x + y * y))), toDeg(Math.atan2(y, x))]);
+  }
+  return points;
 }
