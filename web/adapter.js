@@ -90,3 +90,17 @@ export function parseRoute(json) {
     destination: airport(fr.destination),
   };
 }
+
+// A private/GA flight broadcasts its registration as its callsign (N333FA, or GABCD for G-ABCD).
+// Those never have an airline or a route.
+export function isPrivateFlight(a) {
+  if (!a.callsign || !a.registration) return false;
+  const plain = (s) => s.replace(/-/g, '').toUpperCase();
+  return plain(a.callsign) === plain(a.registration);
+}
+
+// "PIPER PA-28-140/150/160/180" -> "Piper PA-28-140/150/160/180"; falls back to the type code.
+export function modelName(a) {
+  if (!a.description) return a.type;
+  return a.description.replace(/\b[A-Z]{4,}\b/g, (w) => w[0] + w.slice(1).toLowerCase());
+}

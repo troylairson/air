@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -76,4 +76,19 @@ test('parses an adsbdb route, and returns null for an unknown callsign', () => {
   assert.deepEqual(r.origin, { code: 'JFK', city: 'New York', name: 'John F Kennedy International Airport' });
   assert.equal(r.destination.code, 'EGLL');
   assert.equal(parseRoute({ response: 'unknown callsign' }), null);
+});
+
+test('private flights: callsign is the registration', () => {
+  assert.equal(isPrivateFlight({ callsign: 'N333FA', registration: 'N333FA' }), true);
+  assert.equal(isPrivateFlight({ callsign: 'GABCD', registration: 'G-ABCD' }), true);
+  assert.equal(isPrivateFlight({ callsign: 'DAL1605', registration: 'N963AT' }), false);
+  assert.equal(isPrivateFlight({ callsign: null, registration: 'ZZ336' }), false);
+  assert.equal(isPrivateFlight({ callsign: 'N123', registration: null }), false);
+});
+
+test('model name: title-cases maker words, keeps model codes', () => {
+  assert.equal(modelName({ description: 'PIPER PA-28-140/150/160/180', type: 'P28A' }), 'Piper PA-28-140/150/160/180');
+  assert.equal(modelName({ description: 'CESSNA 172 SKYHAWK', type: 'C172' }), 'Cessna 172 Skyhawk');
+  assert.equal(modelName({ description: 'AIRBUS A220-300', type: 'BCS3' }), 'Airbus A220-300');
+  assert.equal(modelName({ description: null, type: 'SR22' }), 'SR22');
 });

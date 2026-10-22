@@ -1,4 +1,4 @@
-import { parseFeed, filterAircraft, parseRoute } from './adapter.js';
+import { parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName } from './adapter.js';
 
 const DEFAULTS = {
   radiusNm: 3,
@@ -124,7 +124,7 @@ async function refresh() {
     state.lastUpdate = new Date();
     state.stale = false;
     state.error = null;
-    visible().forEach((a) => a.callsign && lookupRoute(a.callsign));
+    visible().forEach((a) => a.callsign && !isPrivateFlight(a) && lookupRoute(a.callsign));
   } catch (err) {
     state.stale = true;
     state.error = err.message || String(err);
@@ -161,24 +161,28 @@ function climb(rate) {
 }
 
 function renderHero(a) {
-  const r = routeFor(a);
-  const title = r?.airline || a.registration || 'Unknown operator';
-  const flight = r?.flightNumber || a.callsign || a.hex.toUpperCase();
-  const route =
-    r?.origin && r?.destination
+  const priv = isPrivateFlight(a);
+  const r = priv ? null : routeFor(a);
+  // Private flights: model as the title, registration once below it, no route lookup.
+  const title = priv ? modelName(a) || a.registration || 'Private aircraft' : r?.airline || a.registration || 'Unknown operator';
+  const flight = priv ? a.registration || a.hex.toUpperCase() : r?.flightNumber || a.callsign;
+  const subtitle = !priv && a.callsign !== flight ? a.callsign : null;
+  const route = priv
+    ? '<span class="muted">Private flight</span>'
+    : r?.origin && r?.destination
       ? `${placeName(r.origin)} <span class="to">→</span> ${placeName(r.destination)}`
       : '<span class="muted">Route unknown</span>';
   return `
     <div class="hero-top">
       <div>
         <div class="airline">${esc(title)}</div>
-        <div class="flight">${esc(flight)}${a.callsign && flight !== a.callsign ? ` <span class="muted">${esc(a.callsign)}</span>` : ''}</div>
+        <div class="flight">${esc(flight)}${subtitle ? ` <span class="muted">${esc(subtitle)}</span>` : ''}</div>
       </div>
       ${arrow(a.track)}
     </div>
     <div class="route">${route}</div>
     <div class="stats">
-      <div><label>Aircraft</label><span>${esc(a.type || '–')}</span>${a.description ? `<small>${esc(a.description)}</small>` : ''}</div>
+      <div><label>Aircraft</label><span>${esc(a.type || '–')}</span>${a.description && !priv ? `<small>${esc(a.description)}</small>` : ''}</div>
       <div><label>Altitude</label><span>${fmt('altitude', a.altitudeFt)} ${climb(a.verticalRate)}</span></div>
       <div><label>Speed</label><span>${fmt('speed', a.speedKt)}</span></div>
       <div><label>Distance</label><span>${fmt('distance', a.distanceNm, 1)}</span></div>
@@ -186,8 +190,9 @@ function renderHero(a) {
 }
 
 function renderRow(a) {
-  const r = routeFor(a);
-  const route = r?.origin && r?.destination ? `${esc(r.origin.code)} → ${esc(r.destination.code)}` : '';
+  const priv = isPrivateFlight(a);
+  const r = priv ? null : routeFor(a);
+  const route = priv ? 'Private' : r?.origin && r?.destination ? `${esc(r.origin.code)} → ${esc(r.destination.code)}` : '';
   return `<li>
     <span class="cs">${esc(r?.flightNumber || a.callsign || a.registration || a.hex.toUpperCase())}</span>
     <span class="rt">${route}</span>

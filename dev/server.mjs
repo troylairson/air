@@ -22,6 +22,7 @@ const FLIGHTS = [
   { hex: '3c6dd0', flight: 'DLH4UN  ', r: 'D-AIZR', t: 'A20N', alt: 24000, gs: 420, rate: 0, d: 4.7 },
   { hex: '43c6f2', flight: null, r: 'ZZ336', t: 'A332', alt: 18000, gs: 380, rate: 0, d: 5.4 },
   { hex: '485f33', flight: 'XYZ999  ', t: 'E190', alt: 9000, gs: 280, rate: -1200, d: 5.9 },
+  { hex: 'a3a172', flight: 'N333FA  ', r: 'N333FA', t: 'P28A', desc: 'PIPER PA-28-140/150/160/180', alt: 1800, gs: 93, rate: 0, d: 1.4 },
   { hex: '000001', flight: 'GND1    ', t: 'A320', alt: 'ground', gs: 10, d: 0.3 },
 ];
 
