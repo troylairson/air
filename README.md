@@ -20,7 +20,7 @@ clone of this repo, and `./start.sh` starts it.
 ```
 start.sh                  start or restart the display (run on the box)
 docker-compose.yml        freeflight + nginx, pinned versions, restart: unless-stopped
-docker-compose.debug.yml  testing only: FreeFlight on the box's 127.0.0.1:8000
+docker-compose.debug.yml  testing only: FreeFlight on the box's 127.0.0.1:18000
 nginx.conf                static page + /api/aircraft/ and /api/route/ proxies
 web/                      the display: index.html, style.css, app.js, adapter.js
 config.example.json       copy to config.json (gitignored: holds your home location)
@@ -123,18 +123,19 @@ DEBUG=1 ./start.sh
 ```
 
 The first run downloads the two images, which takes a minute or two. `DEBUG=1` also publishes
-FreeFlight on the box's own `127.0.0.1:8000` so the checks below work. It is never reachable from
-the rest of the network.
+FreeFlight on the box's own `127.0.0.1:18000` so the checks below work. It is never reachable from
+the rest of the network. If 18000 is taken too, set `DEBUG_PORT=` to another free port in `.env`
+and use that port below.
 
 If `./start.sh` says "Permission denied", run `chmod +x start.sh` once (or use `bash start.sh`).
 
 **Checks** (replace `LAT` and `LON` with your numbers):
 
 ```sh
-curl -s localhost:8000/v1/providers                 # adsb.lol, airplanes.live, adsb.fi healthy
+curl -s localhost:18000/v1/providers                 # adsb.lol, airplanes.live, adsb.fi healthy
 docker exec overhead-freeflight-1 freeflight check  # skip if the command isn't found
-curl -s "localhost:8000/v2/point/LAT/LON/10"        # an "ac" list with aircraft in it
-curl -s localhost:8000/v1/route/CALLSIGN            # a callsign from the previous result: origin + destination
+curl -s "localhost:18000/v2/point/LAT/LON/10"        # an "ac" list with aircraft in it
+curl -s localhost:18000/v1/route/CALLSIGN            # a callsign from the previous result: origin + destination
 ```
 
 ## Phase 2: the display
@@ -160,7 +161,7 @@ It's already running. Open `http://<box-ip>:8090` in a browser on any computer o
 
    ```sh
    ./start.sh
-   ss -ltn | grep 8000    # should print nothing
+   ss -ltn | grep 18000   # should print nothing
    ```
 
 ## Phase 3: always on

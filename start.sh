@@ -3,7 +3,7 @@
 # Safe to re-run any time: after editing config.json or .env, or after `git pull`.
 #
 #   ./start.sh            start everything
-#   DEBUG=1 ./start.sh    also publish FreeFlight on this box's 127.0.0.1:8000 for curl checks
+#   DEBUG=1 ./start.sh    also publish FreeFlight on this box's 127.0.0.1:18000 (DEBUG_PORT) for curl checks
 #   SUDO=1 ./start.sh     always run docker with sudo (default: only if your user can't run docker)
 #   SUDO=0 ./start.sh     never use sudo
 set -euo pipefail

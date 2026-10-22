@@ -1,8 +1,9 @@
-# Testing only: exposes FreeFlight on the box's loopback so you can curl it over SSH.
-#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d freeflight
-# Drop this file from the command (plain `docker compose up -d`) once the display works.
+# Testing only: exposes FreeFlight on the box's loopback so you can curl it there.
+#   DEBUG=1 ./start.sh
+# Plain ./start.sh (without DEBUG=1) removes it again once the display works.
+# Change DEBUG_PORT in .env if 18000 is already taken on the box.
 
 services:
   freeflight:
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${DEBUG_PORT:-18000}:8000"
