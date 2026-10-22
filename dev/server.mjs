@@ -16,14 +16,15 @@ let down = false;
 let empty = false;
 
 const FLIGHTS = [
-  { hex: '406b0f', flight: 'BAW117  ', r: 'G-XWBA', t: 'A35K', desc: 'AIRBUS A-350-1000', alt: 3200, gs: 160, rate: -700, d: 0.6 },
-  { hex: '4ca7b4', flight: 'EIN154  ', r: 'EI-DEO', t: 'A320', desc: 'AIRBUS A-320', alt: 6500, gs: 250, rate: 1800, d: 2.4 },
-  { hex: 'a8c2f1', flight: 'UAL901  ', r: 'N2645U', t: 'B77W', desc: 'BOEING 777-300ER', alt: 11000, gs: 300, rate: 0, d: 3.8 },
-  { hex: '3c6dd0', flight: 'DLH4UN  ', r: 'D-AIZR', t: 'A20N', alt: 24000, gs: 420, rate: 0, d: 4.7 },
-  { hex: '43c6f2', flight: null, r: 'ZZ336', t: 'A332', alt: 18000, gs: 380, rate: 0, d: 5.4 },
-  { hex: '485f33', flight: 'AAL2401 ', r: 'N953UW', t: 'E190', alt: 9000, gs: 280, rate: -1200, d: 5.9 }, // airline known, route not
-  { hex: 'a3a172', flight: 'N333FA  ', r: 'N333FA', t: 'P28A', desc: 'PIPER PA-28-140/150/160/180', alt: 1800, gs: 93, rate: 0, d: 1.4 },
-  { hex: '000001', flight: 'GND1    ', t: 'A320', alt: 'ground', gs: 10, d: 0.3 },
+  { hex: '406b0f', cat: 'A5', flight: 'BAW117  ', r: 'G-XWBA', t: 'A35K', desc: 'AIRBUS A-350-1000', alt: 3200, gs: 160, rate: -700, d: 0.6 },
+  { hex: '4ca7b4', cat: 'A3', flight: 'EIN154  ', r: 'EI-DEO', t: 'A320', desc: 'AIRBUS A-320', alt: 6500, gs: 250, rate: 1800, d: 2.4 },
+  { hex: 'a8c2f1', cat: 'A5', flight: 'UAL901  ', r: 'N2645U', t: 'B77W', desc: 'BOEING 777-300ER', alt: 11000, gs: 300, rate: 0, d: 3.8 },
+  { hex: '3c6dd0', cat: 'A3', flight: 'DLH4UN  ', r: 'D-AIZR', t: 'A20N', alt: 24000, gs: 420, rate: 0, d: 4.7 },
+  { hex: '43c6f2', cat: 'A5', flight: null, r: 'ZZ336', t: 'A332', alt: 18000, gs: 380, rate: 0, d: 5.4 },
+  { hex: '485f33', cat: 'A3', flight: 'AAL2401 ', r: 'N953UW', t: 'E190', alt: 9000, gs: 280, rate: -1200, d: 5.9 }, // airline known, route not
+  { hex: 'a6e7ba', flight: 'N544KS  ', r: 'N544KS', t: 'C172', alt: 2300, gs: 92, rate: 0, d: 2.9 }, // no category: size from type
+  { hex: 'a3a172', cat: 'A1', flight: 'N333FA  ', r: 'N333FA', t: 'P28A', desc: 'PIPER PA-28-140/150/160/180', alt: 1800, gs: 93, rate: 0, d: 1.4 },
+  { hex: '000001', cat: 'A3', flight: 'GND1    ', t: 'A320', alt: 'ground', gs: 10, d: 0.3 },
 ];
 
 const AIRPORTS = {
@@ -50,7 +51,7 @@ function aircraft(home) {
     const dLat = (f.d / 60) * Math.cos(angle);
     const dLon = ((f.d / 60) * Math.sin(angle)) / Math.cos((home.lat * Math.PI) / 180);
     const track = ((angle * 180) / Math.PI + 90) % 360;
-    return { hex: f.hex, flight: f.flight ?? undefined, r: f.r, t: f.t, desc: f.desc, alt_baro: f.alt, gs: f.gs,
+    return { hex: f.hex, category: f.cat, flight: f.flight ?? undefined, r: f.r, t: f.t, desc: f.desc, alt_baro: f.alt, gs: f.gs,
       baro_rate: f.rate, track, lat: home.lat + dLat, lon: home.lon + dLon, seen_pos: 0.5 };
   });
 }

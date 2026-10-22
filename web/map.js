@@ -1,7 +1,7 @@
 // Live map behind the cards: home, the overhead radius, every aircraft with its heading,
 // a fading trail of where each one has been since the page saw it, and the planned route
 // of the closest aircraft. Uses Leaflet (web/vendor/leaflet), loaded as the global `L`.
-import { greatCirclePoints, projectPosition } from './adapter.js';
+import { greatCirclePoints, projectPosition, sizeClass } from './adapter.js';
 
 const NM_TO_M = 1852;
 const FORGET_AFTER_MS = 60 * 1000; // drop an aircraft's marker and trail when unseen this long
@@ -10,8 +10,11 @@ const MAX_PREDICT_S = 20; // stop moving a plane forward when its data is this o
 const CORRECT_MS = 1500; // when fresh data disagrees with the prediction, ease into it over this long
 const FRAME_MS = 50; // move planes at most 20 times a second
 
-const PLANE_SVG =
+// Airliner: swept wings. Light aircraft: straight wings, small tail (drawn smaller via CSS).
+const JET_SVG =
   '<svg viewBox="0 0 24 24"><path d="M12 1.5c.8 0 1.4.9 1.4 2.2v5.4l8.1 4.6v2.1l-8.1-2.4v4.8l2.3 1.7V21l-3.7-1.1L8.3 21v-1.1l2.3-1.7v-4.8l-8.1 2.4v-2.1l8.1-4.6V3.7c0-1.3.6-2.2 1.4-2.2z"/></svg>';
+const LIGHT_SVG =
+  '<svg viewBox="0 0 24 24"><path d="M11 2.5c0-.6.4-1 1-1s1 .4 1 1V8h9v2.5h-9v7h3.5v2H13v1.5h-2v-1.5H7.5v-2H11v-7H2V8h9z"/></svg>';
 
 // onSelect(hex) is called when a plane is clicked, and onSelect(null) for a click on the map.
 export function createMap(element, config, { onSelect } = {}) {
@@ -69,7 +72,7 @@ export function createMap(element, config, { onSelect } = {}) {
     className: 'map-plane',
     iconSize: [32, 32],
     iconAnchor: [16, 16],
-    html: `<div class="map-plane-body">${PLANE_SVG}</div><div class="map-plane-label"></div>`,
+    html: `<div class="map-plane-body">${JET_SVG}</div><div class="map-plane-label"></div>`,
   });
 
   // Updates the marker's own element: hero highlight, heading, label.
@@ -78,6 +81,11 @@ export function createMap(element, config, { onSelect } = {}) {
     const el = marker.getElement();
     if (!el) return;
     el.classList.toggle('is-hero', isHero);
+    const size = sizeClass(a);
+    if (el.dataset.size !== size) {
+      el.dataset.size = size;
+      el.querySelector('.map-plane-body').innerHTML = size === 'light' ? LIGHT_SVG : JET_SVG;
+    }
     p.tail.getElement()?.classList.toggle('is-hero', isHero);
     // Turn the short way round (350° -> 10° is +20°, not -340°), keeping a running angle for CSS.
     const target = a.track ?? 0;

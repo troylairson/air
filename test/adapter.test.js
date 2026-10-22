@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -144,4 +144,20 @@ test('airline name from an adsbdb airline response (list or object)', () => {
   assert.equal(parseAirline({ response: [{ name: 'Other', icao: 'XXX' }, { name: 'Delta Air Lines', icao: 'DAL' }] }, 'DAL'), 'Delta Air Lines');
   assert.equal(parseAirline({ response: { name: 'Breeze Airways', icao: 'MXY' } }, 'MXY'), 'Breeze Airways');
   assert.equal(parseAirline({ response: 'unknown airline' }, 'ZZZ'), null);
+});
+
+test('size class from emitter category, else type code', () => {
+  assert.equal(sizeClass({ category: 'A1', type: 'SR22' }), 'light');
+  assert.equal(sizeClass({ category: 'A2', type: 'E135' }), 'small');
+  assert.equal(sizeClass({ category: 'A3', type: 'BCS3' }), 'large');
+  assert.equal(sizeClass({ category: 'A5', type: 'B77W' }), 'heavy');
+  assert.equal(sizeClass({ category: 'A7', type: 'EC35' }), 'light');
+  assert.equal(sizeClass({ category: null, type: 'C172' }), 'light');
+  assert.equal(sizeClass({ category: null, type: 'P28A' }), 'light');
+  assert.equal(sizeClass({ category: null, type: 'A320' }), 'large');
+  assert.equal(sizeClass({ category: null, type: null }), 'large');
+});
+
+test('normalizeRecord keeps the emitter category', () => {
+  assert.equal(normalizeRecord({ hex: 'a', lat: 51, lon: 0, category: 'A1' }, home).category, 'A1');
 });

@@ -284,6 +284,10 @@ within a minute.
   known position at its reported speed and heading, using the time the feed says the position was
   taken, and eases into the real position when the next update arrives. If updates stop, planes
   stop moving after 20 seconds.
+- Plane symbols are sized from the ADS-B emitter category each aircraft broadcasts: light aircraft
+  and helicopters (A1, A7, gliders, ultralights) get a small straight-winged symbol, small
+  airliners (A2) a slightly smaller jet, heavies (A5) a bigger one. Aircraft without a category
+  fall back to their type code (C172, PA-28, SR22 and similar count as light).
 - The map is drawn by `web/map.js` with Leaflet. None of the data sources keep flight history, so
   each trail is built in the browser from the positions it receives every few seconds: it starts
   when an aircraft first comes within the fetch radius, and a page reload clears it. The dashed
