@@ -50,6 +50,7 @@ export function normalizeRecord(rec, home) {
     track: num(rec.track) ?? num(rec.true_heading),
     verticalRate: num(rec.baro_rate) ?? num(rec.geom_rate),
     seenPosS: num(rec.seen_pos),
+    category: str(rec.category),
     distanceNm: distanceNm(home.lat, home.lon, lat, lon),
     bearingDeg: bearingDeg(home.lat, home.lon, lat, lon),
   };
@@ -173,4 +174,21 @@ export function parseAirline(json, icao) {
   const list = Array.isArray(resp) ? resp : resp && typeof resp === 'object' ? [resp] : [];
   const match = list.find((a) => a?.icao === icao) ?? list[0];
   return str(match?.name);
+}
+
+// Common light-aircraft type codes, for aircraft that don't broadcast an emitter category:
+// Cessna 150-210, Piper PA-xx, Cirrus SR20/22, Diamond DA20/40/42/62, Beech Bonanza/Baron,
+// Mooney, Vans RV, Grumman AA-5, Robin, Tecnam.
+const LIGHT_TYPES = /^(C1\d\d|C2[01]\d|P28|P32|PA\d|SR2|DA\d|BE3\d|BE5\d|BE9|M20|RV\d|AA5|DR4|P92|P2008)/;
+
+// Rough size for the map symbol, from the ADS-B emitter category (A1 light, A2 small, A3/A4 large,
+// A5 heavy, A7 rotorcraft, B1 glider, B4 ultralight), else from the type code.
+export function sizeClass(a) {
+  switch (a.category) {
+    case 'A1': case 'A7': case 'B1': case 'B4': return 'light';
+    case 'A2': return 'small';
+    case 'A3': case 'A4': case 'A6': return 'large';
+    case 'A5': return 'heavy';
+  }
+  return a.type && LIGHT_TYPES.test(a.type) ? 'light' : 'large';
 }

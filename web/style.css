@@ -221,8 +221,20 @@ body.cards-hidden main { display: none; }
 
 .leaflet-marker-icon.map-plane { transition: opacity 1s; } /* position is animated in map.js */
 .map-plane-body { width: 32px; height: 32px; transition: transform 1s; }
-.map-plane-body svg { width: 100%; height: 100%; fill: #c9d4e2; filter: drop-shadow(0 1px 2px #000); }
-.map-plane.is-hero .map-plane-body svg { fill: var(--accent); transform: scale(1.35); }
+.map-plane-body svg {
+  width: 100%;
+  height: 100%;
+  fill: #c9d4e2;
+  filter: drop-shadow(0 1px 2px #000);
+  transform: scale(calc(var(--plane-size, 1) * var(--plane-pick, 1)));
+}
+/* Symbol size by aircraft size (sizeClass in adapter.js); the closest/picked plane is 35% bigger. */
+.map-plane[data-size="light"] { --plane-size: 0.7; }
+.map-plane[data-size="light"]:not(.is-hero) .map-plane-label { top: 28px; }
+.map-plane[data-size="small"] { --plane-size: 0.8; }
+.map-plane[data-size="heavy"] { --plane-size: 1.15; }
+.map-plane.is-hero { --plane-pick: 1.35; }
+.map-plane.is-hero .map-plane-body svg { fill: var(--accent); }
 .map-plane.lost { opacity: 0.35; }
 .leaflet-marker-icon.map-plane { cursor: pointer; }
 
