@@ -252,7 +252,8 @@ possible.
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
 | `map.enabled` | `true` | Live map behind the cards. `false` gives the plain card-and-list page. |
 | `map.trailMinutes` | `15` | How much of each aircraft's trail to keep |
-| `map.tileUrl`, `map.attribution` | CARTO Dark Matter | Map background tiles and their credit line; any Leaflet tile URL works |
+| `map.tileUrl`, `map.attribution` | OpenStreetMap | Map background tiles and their credit line; any Leaflet tile URL works |
+| `map.darkTiles` | `true` | Invert light tiles into a dark map. Set `false` for tiles that are already dark. |
 
 To change the location or radius: `nano config.json`, then `./start.sh`. The screen reloads
 within a minute.
@@ -270,9 +271,12 @@ within a minute.
   when an aircraft first comes within the fetch radius, and a page reload clears it. The dashed
   line is the closest aircraft's planned route, a great circle between its departure and
   destination airports from adsbdb.
-- The map background comes from CARTO's free basemap tiles, loaded by the browser straight from the
-  internet (not through the box). If they can't load, the aircraft still show on a plain dark
-  background.
+- The map background is OpenStreetMap's standard tiles (free, no API key), darkened in the browser
+  to match the page. The browser loads them straight from the internet, not through the box, and
+  caches them; one screen is well within OpenStreetMap's
+  [tile usage policy](https://operations.osmfoundation.org/policies/tiles/). If they can't load,
+  the aircraft still show on a plain dark background. To use another provider, set `map.tileUrl`
+  and `map.attribution` (and `map.darkTiles: false` if its tiles are already dark).
 
 ## Updating
 

@@ -25,6 +25,7 @@ export function createMap(element, config) {
     zoomAnimation: false,
   });
   L.tileLayer(opts.tileUrl, { attribution: opts.attribution, subdomains: 'abcd', maxZoom: 19 }).addTo(map);
+  element.classList.toggle('dark-tiles', Boolean(opts.darkTiles));
 
   L.circle([home.lat, home.lon], {
     radius: radiusNm * NM_TO_M,

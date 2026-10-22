@@ -14,9 +14,11 @@ const DEFAULTS = {
   night: { enabled: false, start: '23:00', end: '06:30', brightness: 0.25 },
   map: {
     enabled: true,
-    tileUrl: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    // OpenStreetMap's own tiles: free, no API key. They're light, so darkTiles inverts them
+    // to match the page; turn it off for tiles that are already dark.
+    tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    darkTiles: true,
     trailMinutes: 15,
   },
 };

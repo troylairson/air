@@ -230,6 +230,11 @@ body.with-map .list li:last-child { border-bottom: none; }
 }
 
 .leaflet-container { background: var(--bg); font-family: inherit; }
+
+/* Turns light map tiles (OpenStreetMap) into a dim dark map that matches the page. */
+.dark-tiles .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.7) contrast(0.9) saturate(0.4);
+}
 .leaflet-control-attribution.leaflet-control {
   background: rgba(5, 8, 13, 0.6);
   color: var(--muted);
