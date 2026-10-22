@@ -1,11 +1,14 @@
 // Live map behind the cards: home, the overhead radius, every aircraft with its heading,
 // a fading trail of where each one has been since the page saw it, and the planned route
 // of the closest aircraft. Uses Leaflet (web/vendor/leaflet), loaded as the global `L`.
-import { greatCirclePoints } from './adapter.js';
+import { greatCirclePoints, projectPosition } from './adapter.js';
 
 const NM_TO_M = 1852;
 const FORGET_AFTER_MS = 60 * 1000; // drop an aircraft's marker and trail when unseen this long
 const TRAIL_BANDS = 5; // the trail is drawn in bands, fading towards its oldest end
+const MAX_PREDICT_S = 20; // stop moving a plane forward when its data is this old (e.g. an outage)
+const CORRECT_MS = 1500; // when fresh data disagrees with the prediction, ease into it over this long
+const FRAME_MS = 50; // move planes at most 20 times a second
 
 const PLANE_SVG =
   '<svg viewBox="0 0 24 24"><path d="M12 1.5c.8 0 1.4.9 1.4 2.2v5.4l8.1 4.6v2.1l-8.1-2.4v4.8l2.3 1.7V21l-3.7-1.1L8.3 21v-1.1l2.3-1.7v-4.8l-8.1 2.4v-2.1l8.1-4.6V3.7c0-1.3.6-2.2 1.4-2.2z"/></svg>';
@@ -26,10 +29,6 @@ export function createMap(element, config) {
   element.classList.toggle('dark-tiles', Boolean(opts.darkTiles));
   element.style.setProperty('--tile-brightness', String(opts.tileBrightness));
 
-  // Planes glide between positions (CSS transition), but must jump when the zoom changes.
-  map.on('zoomstart', () => element.classList.add('no-glide'));
-  map.on('zoomend', () => requestAnimationFrame(() => requestAnimationFrame(() => element.classList.remove('no-glide'))));
-
   L.circle([home.lat, home.lon], {
     radius: radiusNm * NM_TO_M,
     className: 'map-radius',
@@ -42,8 +41,10 @@ export function createMap(element, config) {
   }).addTo(map);
 
   const trailLayer = L.layerGroup().addTo(map);
+  const tailLayer = L.layerGroup().addTo(map); // joins each trail's last point to the moving plane
   const routeLayer = L.layerGroup().addTo(map);
-  const planes = new Map(); // hex -> { marker, trail: [[lat, lon, t]], lastSeen }
+  // hex -> { marker, tail, trail: [[lat, lon, t]], lastSeen, base, error, shown }
+  const planes = new Map();
 
   // Frames map.viewRadiusNm around home in the part of the screen the cards don't cover.
   let homePadding = null;
@@ -69,11 +70,13 @@ export function createMap(element, config) {
     html: `<div class="map-plane-body">${PLANE_SVG}</div><div class="map-plane-label"></div>`,
   });
 
-  // Updates the marker's own element, so CSS can glide it to the new position.
-  function stylePlane(marker, a, label, isHero) {
+  // Updates the marker's own element: hero highlight, heading, label.
+  function stylePlane(p, a, label, isHero) {
+    const { marker } = p;
     const el = marker.getElement();
     if (!el) return;
     el.classList.toggle('is-hero', isHero);
+    p.tail.getElement()?.classList.toggle('is-hero', isHero);
     // Turn the short way round (350° -> 10° is +20°, not -340°), keeping a running angle for CSS.
     const target = a.track ?? 0;
     const current = marker.rotation ?? target;
@@ -112,20 +115,56 @@ export function createMap(element, config) {
     L.polyline(greatCirclePoints(o.lat, o.lon, d.lat, d.lon, 128), { className: 'map-route', interactive: false }).addTo(routeLayer);
   }
 
+  // Dead reckoning: where the plane is now, from its last known position, speed and track.
+  function predict(base, t) {
+    if (base.speedKt === null || base.track === null) return [base.lat, base.lon];
+    const seconds = Math.min(MAX_PREDICT_S, Math.max(0, (t - base.time) / 1000));
+    return projectPosition(base.lat, base.lon, base.track, base.speedKt, seconds);
+  }
+
+  function positionAt(p, t) {
+    const [lat, lon] = predict(p.base, t);
+    if (!p.error) return [lat, lon];
+    const left = 1 - (t - p.error.time) / CORRECT_MS; // the old prediction's error, fading out
+    return left > 0 ? [lat + p.error.dLat * left, lon + p.error.dLon * left] : [lat, lon];
+  }
+
+  // Moves every plane along its predicted path, a few times a second.
+  let lastFrame = 0;
+  function frame(t) {
+    requestAnimationFrame(frame);
+    if (t - lastFrame < FRAME_MS) return;
+    lastFrame = t;
+    const now = Date.now();
+    for (const p of planes.values()) {
+      p.shown = positionAt(p, now);
+      p.marker.setLatLng(p.shown);
+      const last = p.trail[p.trail.length - 1];
+      p.tail.setLatLngs(last ? [[last[0], last[1]], p.shown] : []);
+    }
+  }
+  requestAnimationFrame(frame);
+
   // aircraft: filtered list from the latest fetch; hero: the closest one (or null);
   // labelFor(a): text under each plane; heroRoute: the hero's route, if known.
   function update(aircraft, hero, labelFor, heroRoute) {
     const now = Date.now();
     for (const a of aircraft) {
       let p = planes.get(a.hex);
+      const base = { lat: a.lat, lon: a.lon, time: a.positionTime ?? now, speedKt: a.speedKt, track: a.track };
       if (!p) {
         const marker = L.marker([a.lat, a.lon], { icon: planeIcon, interactive: false, keyboard: false }).addTo(map);
-        p = { marker, trail: [] };
+        const tail = L.polyline([], { className: 'map-trail', opacity: 0.9, interactive: false }).addTo(tailLayer);
+        p = { marker, tail, trail: [], base, error: null };
         planes.set(a.hex, p);
-      } else {
-        p.marker.setLatLng([a.lat, a.lon]);
+      } else if (p.base.time !== base.time || p.base.lat !== base.lat || p.base.lon !== base.lon) {
+        // New data: keep the plane where it's drawn and ease the difference out, so it never jumps.
+        const shown = p.shown ?? positionAt(p, now);
+        const next = predict(base, now);
+        p.error = { dLat: shown[0] - next[0], dLon: shown[1] - next[1], time: now };
+        p.base = base;
       }
-      stylePlane(p.marker, a, labelFor(a), a === hero);
+      stylePlane(p, a, labelFor(a), a === hero);
       p.marker.setZIndexOffset(a === hero ? 1000 : 0);
       const last = p.trail[p.trail.length - 1];
       if (!last || last[0] !== a.lat || last[1] !== a.lon) p.trail.push([a.lat, a.lon, now]);
@@ -134,6 +173,7 @@ export function createMap(element, config) {
     for (const [hex, p] of planes) {
       if (now - p.lastSeen > FORGET_AFTER_MS) {
         p.marker.remove();
+        p.tail.remove();
         planes.delete(hex);
       } else {
         // Out of range or filtered out this time: fade it until it's forgotten or comes back.

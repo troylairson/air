@@ -189,6 +189,8 @@ Goal: the display comes back by itself after a power cut, and changes take one c
      after 3 seconds without movement.
    - **Zoom and pan:** scroll, pinch or use the +/− buttons to zoom, and drag to move the map. It
      returns to the home view a minute after you stop (`map.recenterSeconds`).
+   - **Map only:** the "Map only" button (bottom left, shown while the mouse moves) or the `C` key
+     hides the card and list; press again to bring them back. Each browser remembers its choice.
    - **Keep it awake:** browsers only let a page keep the screen on over HTTPS, so set the
      computer's own display sleep to "never" while it's showing the page.
    - **Open straight into full screen** (optional), as an app window with no browser bars:
@@ -271,6 +273,10 @@ within a minute.
 - Routes come from adsbdb, looked up once per callsign and cached by nginx for 24 hours, including
   "unknown" answers. A flight with no route still shows; the display never guesses one.
 - If a fetch fails, the page keeps the last data and marks it stale. It never goes blank.
+- Planes move smoothly between the 5-second updates: the page moves each one forward from its last
+  known position at its reported speed and heading, using the time the feed says the position was
+  taken, and eases into the real position when the next update arrives. If updates stop, planes
+  stop moving after 20 seconds.
 - The map is drawn by `web/map.js` with Leaflet. None of the data sources keep flight history, so
   each trail is built in the browser from the positions it receives every few seconds: it starts
   when an aircraft first comes within the fetch radius, and a page reload clears it. The dashed
