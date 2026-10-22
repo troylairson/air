@@ -26,11 +26,19 @@ const FLIGHTS = [
   { hex: '000001', flight: 'GND1    ', t: 'A320', alt: 'ground', gs: 10, d: 0.3 },
 ];
 
+const AIRPORTS = {
+  JFK: ['New York', 40.6413, -73.7781],
+  LHR: ['London', 51.47, -0.4543],
+  DUB: ['Dublin', 53.4213, -6.2701],
+  SFO: ['San Francisco', 37.6213, -122.379],
+  FRA: ['Frankfurt', 50.0379, 8.5622],
+};
+
 const ROUTES = {
-  BAW117: { airline: 'British Airways', iata: 'BA117', o: ['New York', 'JFK'], d: ['London', 'LHR'] },
-  EIN154: { airline: 'Aer Lingus', iata: 'EI154', o: ['London', 'LHR'], d: ['Dublin', 'DUB'] },
-  UAL901: { airline: 'United Airlines', iata: 'UA901', o: ['London', 'LHR'], d: ['San Francisco', 'SFO'] },
-  DLH4UN: { airline: 'Lufthansa', iata: 'LH903', o: ['Frankfurt', 'FRA'], d: ['London', 'LHR'] },
+  BAW117: { airline: 'British Airways', iata: 'BA117', o: 'JFK', d: 'LHR' },
+  EIN154: { airline: 'Aer Lingus', iata: 'EI154', o: 'LHR', d: 'DUB' },
+  UAL901: { airline: 'United Airlines', iata: 'UA901', o: 'LHR', d: 'SFO' },
+  DLH4UN: { airline: 'Lufthansa', iata: 'LH903', o: 'FRA', d: 'LHR' },
 };
 
 function aircraft(home) {
@@ -68,7 +76,10 @@ http
     if (m) {
       const r = ROUTES[decodeURIComponent(m[1]).toUpperCase()];
       if (!r) return send(res, 404, { response: 'unknown callsign' });
-      const ap = ([city, code]) => ({ municipality: city, iata_code: code, name: `${city} airport` });
+      const ap = (code) => {
+        const [city, latitude, longitude] = AIRPORTS[code];
+        return { municipality: city, iata_code: code, name: `${city} airport`, latitude, longitude };
+      };
       return send(res, 200, { response: { flightroute: { callsign_iata: r.iata, airline: { name: r.airline }, origin: ap(r.o), destination: ap(r.d) } } });
     }
 

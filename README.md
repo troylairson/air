@@ -8,7 +8,9 @@ aircraft type, altitude, speed and distance. It runs as two Docker containers on
 | `freeflight` | [FreeFlight](https://github.com/Ethos6/free-flight-api): merges adsb.lol, airplanes.live and adsb.fi and caches their responses. Not published on any port. |
 | `nginx` | Serves the display page on the LAN (port 8090) and proxies FreeFlight and the [adsbdb](https://www.adsbdb.com/) route lookup, so the browser only talks to one origin. |
 
-The screen is a web browser on any computer on the LAN, open full screen at `http://<box-ip>:8090`.
+The page is a live map of the aircraft around the house, each with a trail of where it has been,
+plus the planned route of the closest one, with its details in a card on top. The screen is a web
+browser on any computer on the LAN, open full screen at `http://<box-ip>:8090`.
 A dedicated screen (old tablet, Raspberry Pi) can come later.
 
 **Everything runs on the box.** Log in with `ssh <user>@<box-ip>` and your ZimaOS password, and
@@ -22,7 +24,8 @@ start.sh                  start or restart the display (run on the box)
 docker-compose.yml        freeflight + nginx, pinned versions, restart: unless-stopped
 docker-compose.debug.yml  testing only: FreeFlight on the box's 127.0.0.1:18000
 nginx.conf                static page + /api/aircraft/ and /api/route/ proxies
-web/                      the display: index.html, style.css, app.js, adapter.js
+web/                      the display: index.html, style.css, app.js, adapter.js, map.js
+web/vendor/leaflet/       Leaflet 1.9.4 map library (BSD-2-Clause), kept here so there's no build step
 config.example.json       copy to config.json (gitignored: holds your home location)
 .env.example              copy to .env (gitignored): display port + FreeFlight settings
 dev/server.mjs            local preview with fake aircraft (on a laptop, optional)
@@ -247,6 +250,9 @@ possible.
 | `routeUrl` | adsbdb via nginx | Route lookup URL. `{callsign}` is filled in. |
 | `clock24h` | `true` | 24-hour clock |
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
+| `map.enabled` | `true` | Live map behind the cards. `false` gives the plain card-and-list page. |
+| `map.trailMinutes` | `15` | How much of each aircraft's trail to keep |
+| `map.tileUrl`, `map.attribution` | CARTO Dark Matter | Map background tiles and their credit line; any Leaflet tile URL works |
 
 To change the location or radius: `nano config.json`, then `./start.sh`. The screen reloads
 within a minute.
@@ -259,6 +265,14 @@ within a minute.
 - Routes come from adsbdb, looked up once per callsign and cached by nginx for 24 hours, including
   "unknown" answers. A flight with no route still shows; the display never guesses one.
 - If a fetch fails, the page keeps the last data and marks it stale. It never goes blank.
+- The map is drawn by `web/map.js` with Leaflet. None of the data sources keep flight history, so
+  each trail is built in the browser from the positions it receives every few seconds: it starts
+  when an aircraft first comes within the fetch radius, and a page reload clears it. The dashed
+  line is the closest aircraft's planned route, a great circle between its departure and
+  destination airports from adsbdb.
+- The map background comes from CARTO's free basemap tiles, loaded by the browser straight from the
+  internet (not through the box). If they can't load, the aircraft still show on a plain dark
+  background.
 
 ## Updating
 
@@ -274,7 +288,9 @@ Your `config.json` and `.env` aren't in git, so `git pull` never touches them.
 
 - Every few months, check for new [FreeFlight](https://github.com/Ethos6/free-flight-api/releases)
   and [nginx](https://hub.docker.com/_/nginx) releases (and ultrafeeder if used), bump the pinned
-  tags in `docker-compose.yml`, and run `./start.sh`.
+  tags in `docker-compose.yml`, and run `./start.sh`. Leaflet rarely needs updating; if it does,
+  replace the files in `web/vendor/leaflet/` with the new release's `dist/leaflet.js` and
+  `dist/leaflet.css`.
 - Don't add auto-updaters such as Watchtower; an untested update could quietly break the screen.
 - Logs: `docker compose logs --tail 50` (in `/DATA/AppData/overhead`)
 
