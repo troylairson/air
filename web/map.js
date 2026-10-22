@@ -13,6 +13,10 @@ const FRAME_MS = 50; // move planes at most 20 times a second
 // Airliner: swept wings. Light aircraft: straight wings, small tail (drawn smaller via CSS).
 const JET_SVG =
   '<svg viewBox="0 0 24 24"><path d="M12 1.5c.8 0 1.4.9 1.4 2.2v5.4l8.1 4.6v2.1l-8.1-2.4v4.8l2.3 1.7V21l-3.7-1.1L8.3 21v-1.1l2.3-1.7v-4.8l-8.1 2.4v-2.1l8.1-4.6V3.7c0-1.3.6-2.2 1.4-2.2z"/></svg>';
+// Helicopter: cabin, tail boom and tail rotor, with a two-blade main rotor that spins (CSS).
+const HELI_SVG =
+  '<svg viewBox="0 0 24 24" style="overflow: visible"><path d="M12 3.6c2 0 3.4 2.4 3.4 5.3 0 2.1-1 3.6-2.4 4.2V19h2.6v1.4H9.4V19H12v-5.9c-1.4-.6-2.4-2.1-2.4-4.2 0-2.9 1.4-5.3 3.4-5.3z"/>' +
+  '<g class="rotor"><rect x="0.5" y="8.3" width="23" height="1.3" rx=".65"/><rect x="11.35" y="-2.6" width="1.3" height="23" rx=".65"/></g></svg>';
 const LIGHT_SVG =
   '<svg viewBox="0 0 24 24"><path d="M11 2.5c0-.6.4-1 1-1s1 .4 1 1V8h9v2.5h-9v7h3.5v2H13v1.5h-2v-1.5H7.5v-2H11v-7H2V8h9z"/></svg>';
 
@@ -84,7 +88,7 @@ export function createMap(element, config, { onSelect } = {}) {
     const size = sizeClass(a);
     if (el.dataset.size !== size) {
       el.dataset.size = size;
-      el.querySelector('.map-plane-body').innerHTML = size === 'light' ? LIGHT_SVG : JET_SVG;
+      el.querySelector('.map-plane-body').innerHTML = size === 'heli' ? HELI_SVG : size === 'light' ? LIGHT_SVG : JET_SVG;
     }
     p.tail.getElement()?.classList.toggle('is-hero', isHero);
     // Turn the short way round (350° -> 10° is +20°, not -340°), keeping a running angle for CSS.
