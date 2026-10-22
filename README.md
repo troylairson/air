@@ -43,11 +43,37 @@ curl localhost:8090/__dev/empty   # toggle an empty sky: "Clear skies overhead"
 ## First-time setup (local)
 
 ```sh
-cp config.example.json config.json   # set home.lat / home.lon (4 decimals is plenty)
+cp config.example.json config.json   # then set home.lat / home.lon (below)
 cp .env.example .env                 # change DISPLAY_PORT if 8090 is taken
 ```
 
-Never commit `config.json` or `.env`; both are gitignored.
+Never commit `config.json` or `.env`; both are gitignored. `deploy.sh` warns if `config.json`
+still has the example location.
+
+### Find your latitude and longitude
+
+Any of these gives you two decimal numbers, latitude first:
+
+- **Google Maps (computer):** right-click your house on the map. The first line of the menu is the
+  coordinates, e.g. `47.6205, -122.3493`. Click it to copy.
+- **Google Maps (phone):** press and hold on your house until a red pin drops. The coordinates
+  appear in the search box at the top.
+- **Apple Maps (iPhone):** press and hold on your house to drop a pin, then swipe up on the pin's
+  card. The coordinates are under Details.
+
+Put them in `config.json`, rounded to 4 decimal places (about 10 m, plenty for this):
+
+```json
+"home": { "lat": 47.6205, "lon": -122.3493 },
+```
+
+Signs matter: latitude is negative south of the equator, and longitude is negative west of
+Greenwich (all of the Americas). Keep the minus sign if the map shows one. If the numbers come as
+degrees, minutes and seconds (`47°37'13.8"N`), switch the map to decimal or use a converter; the
+display needs decimal degrees.
+
+To check: open `https://www.google.com/maps?q=<lat>,<lon>` with your numbers. The pin should land
+on your house.
 
 ## Phase 0: connect and inspect the box
 
@@ -81,9 +107,27 @@ Goal: passwordless SSH as `ssh zima`, and you know what is already running.
    ```
 
    Look for: `docker compose` (v2) works, there is free disk space, and nothing is listening on
-   `:8090`. If 8090 is taken, set another `DISPLAY_PORT` in `.env`.
+   `:8090`. If the docker commands say "permission denied", see the next section. If 8090 is taken, set another `DISPLAY_PORT` in `.env`.
 
 **Check:** `ssh zima 'docker ps'` runs without a password prompt.
+
+## If docker needs sudo on the box
+
+Check once:
+
+```sh
+ssh zima 'docker ps'
+```
+
+If that prints a "permission denied" error, your ZimaOS user isn't allowed to run docker directly.
+
+- **`deploy.sh` handles it:** it checks on each run and uses sudo when needed, asking for your
+  ZimaOS password once. Force it with `SUDO=1 ./deploy.sh` or turn it off with `SUDO=0`.
+- **Commands you type yourself:** put `sudo` before `docker` and add `-t` to `ssh` so sudo can
+  ask for your password, e.g. `ssh -t zima 'sudo docker ps'`. The same goes for every
+  `ssh zima '… docker …'` command in this README.
+- With sudo, the files in `/DATA/AppData/overhead` are owned by root. That's fine: `deploy.sh`
+  always copies them in with sudo.
 
 ## Phase 1: deploy FreeFlight
 
@@ -212,7 +256,7 @@ possible.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `home.lat`, `home.lon` | required | Your location in decimal degrees |
+| `home.lat`, `home.lon` | required | Your location in decimal degrees ([how to find it](#find-your-latitude-and-longitude)) |
 | `radiusNm` | `3` | "Overhead" radius. The closest aircraft inside it gets the big card. 2 to 5 nm works well. |
 | `fetchRadiusMultiplier` | `2` | Aircraft are fetched and listed out to `radiusNm` × this, so you see them coming |
 | `altitudeFt.min`, `.max` | `0`, `45000` | Altitude band. Raise `min` to hide approach traffic near an airport. |
