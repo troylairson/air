@@ -69,6 +69,7 @@ const ROUTES = {
   EIN154: { airline: 'Aer Lingus', iata: 'EI154', o: 'LHR', d: 'DUB' },
   UAL901: { airline: 'United Airlines', iata: 'UA901', o: 'LHR', d: 'SFO' },
   DLH4UN: { airline: 'Lufthansa', iata: 'LH903', o: 'FRA', d: 'LHR' },
+  AAL2401: { airline: 'American Airlines', iata: 'AA2401', o: 'JFK', d: 'LHR' }, // right, where standing data is stale
 };
 
 function aircraft(home) {

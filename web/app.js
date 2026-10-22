@@ -1,6 +1,6 @@
 import {
   parseFeed, filterAircraft, parseRoute, pickLeg, isPrivateFlight, modelName, airlineCode, parseAirline,
-  normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports, distanceNm,
+  normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports,
 } from './adapter.js';
 import { createMap } from './map.js';
 
@@ -28,7 +28,7 @@ const DEFAULTS = {
     planeColor: '#ffd23f', // gold: a hue the map itself never uses
     viewRadiusNm: 4, // how far from home the map shows at rest
     recenterSeconds: 60, // after you drag or zoom, return to the home view this long after
-    trailMinutes: 15,
+    trailMinutes: 20,
   },
 };
 
@@ -170,36 +170,28 @@ async function standingDataRoute(callsign) {
   return { route: { airline: null, flightNumber: null, airports: codes.map(lookup), source: 'standing-data' } };
 }
 
-// Route for a callsign: the community standing data first (updated daily, multi-leg), then
-// adsbdb. Either can be stale; pickLeg() checks the result against where the plane actually is.
+// Routes for a callsign, from both the community standing data (updated daily, multi-leg) and
+// adsbdb, looked up together. Either can be stale or wrong; legFor() shows the first one that
+// fits where the plane actually is (pickLeg), standing data first.
 async function lookupRoute(a) {
   const { callsign } = a;
   const cached = state.routes.get(callsign);
-  if (cached && (cached.route !== undefined || Date.now() < cached.retryAt)) return;
-  state.routes.set(callsign, { route: undefined, retryAt: Date.now() + ROUTE_RETRY_MS });
-  let route = null;
-  let answered = false; // a source said "unknown" (rather than failing): don't ask again
-  if (state.config.standingDataUrl) {
-    try {
-      ({ route } = await standingDataRoute(callsign));
-      answered = true;
-    } catch {
-      // try adsbdb
-    }
-  }
-  if (!route) {
-    try {
-      const { ok, status, json } = await fetchJson(state.config.routeUrl.replace('{callsign}', encodeURIComponent(callsign)));
-      if (ok) route = parseRoute(json);
-      answered ||= ok || status === 404;
-    } catch {
-      // network error
-    }
-  }
-  if (route || answered) state.routes.set(callsign, { route }); // else retried after ROUTE_RETRY_MS
-  // No route, or a route without an airline: name the airline from the callsign's prefix instead.
+  if (cached && (cached.routes !== undefined || Date.now() < cached.retryAt)) return;
+  state.routes.set(callsign, { routes: undefined, retryAt: Date.now() + ROUTE_RETRY_MS });
+  // Each source: a route, null ("doesn't know it"), or undefined (failed, ask again later).
+  const fromStandingData = state.config.standingDataUrl
+    ? standingDataRoute(callsign).then(({ route }) => route, () => undefined)
+    : Promise.resolve(null);
+  const fromAdsbdb = fetchJson(state.config.routeUrl.replace('{callsign}', encodeURIComponent(callsign))).then(
+    ({ ok, status, json }) => (ok ? parseRoute(json) : status === 404 ? null : undefined),
+    () => undefined,
+  );
+  const answers = await Promise.all([fromStandingData, fromAdsbdb]);
+  const routes = answers.filter(Boolean);
+  if (routes.length || answers.every((r) => r !== undefined)) state.routes.set(callsign, { routes }); // else retried later
+  // No airline name from adsbdb: name it from the callsign's prefix instead.
   const code = airlineCode(callsign);
-  if (code && !route?.airline) await lookupAirline(code);
+  if (code && !routes.some((r) => r.airline)) await lookupAirline(code);
   render();
 }
 
@@ -216,10 +208,25 @@ async function lookupAirline(code) {
   }
 }
 
-const routeFor = (a) => (a.callsign ? state.routes.get(a.callsign)?.route ?? null : null);
-// The leg the plane is on right now, or null if its route doesn't fit where it is (stale data).
-const legFor = (a) => pickLeg(routeFor(a), a);
-const airlineFor = (a) => routeFor(a)?.airline ?? state.airlines.get(airlineCode(a.callsign))?.name ?? null;
+const routesFor = (a) => (a.callsign ? state.routes.get(a.callsign)?.routes ?? [] : []);
+// The leg the plane is on right now, from the first route that fits where it is, or null if none
+// does (stale data). The leg last shown for this flight is preferred while it fits, so it doesn't flip.
+const shownLegs = new Map(); // callsign -> { origin, destination } airport codes
+function legFor(a) {
+  const prefer = shownLegs.get(a.callsign);
+  const legs = routesFor(a)
+    .map((route) => ({ route, leg: pickLeg(route, a, prefer) }))
+    .filter(({ leg }) => leg);
+  const same = (leg) => prefer && leg.origin.code === prefer.origin && leg.destination.code === prefer.destination;
+  const pick = legs.find(({ leg }) => same(leg)) ?? legs[0];
+  if (!pick) return null;
+  shownLegs.set(a.callsign, { origin: pick.leg.origin.code, destination: pick.leg.destination.code });
+  return { ...pick.leg, route: pick.route };
+}
+// The route behind the card: the one that fits, else the first one known (shown as "unconfirmed").
+const routeFor = (a) => legFor(a)?.route ?? routesFor(a)[0] ?? null;
+const airlineName = (a) => routesFor(a).find((r) => r.airline)?.airline;
+const airlineFor = (a) => airlineName(a) ?? state.airlines.get(airlineCode(a.callsign))?.name ?? null;
 
 const lookupFor = (a) => a.callsign && !isPrivateFlight(a) && lookupRoute(a);
 
@@ -261,18 +268,13 @@ async function fetchView() {
   }
 }
 
+// Always fetch what's in view, the home view included: planes keep their trails after they leave
+// the home area, and at the home view FreeFlight answers both requests from the same cached query.
 function viewChanged(v) {
-  const home = homeArea();
-  const reach = distanceNm(home.lat, home.lon, v.lat, v.lon) + v.radiusNm;
-  if (v.atHome || reach <= home.radiusNm * 2) {
-    // back at (or near) the home view: the home fetch covers it
-    state.view = null;
-    state.viewAircraft = [];
-  } else {
-    // round, so small moves reuse nginx's and FreeFlight's caches
-    state.view = { lat: Math.round(v.lat * 20) / 20, lon: Math.round(v.lon * 20) / 20, radiusNm: Math.min(250, Math.ceil(v.radiusNm / 5) * 5 + 5) };
-    fetchView().then(render);
-  }
+  // round, so small moves reuse nginx's and FreeFlight's caches; at least the home area's size
+  const radiusNm = Math.min(250, Math.max(homeArea().radiusNm, Math.ceil(v.radiusNm / 5) * 5 + 5));
+  state.view = { lat: Math.round(v.lat * 20) / 20, lon: Math.round(v.lon * 20) / 20, radiusNm };
+  fetchView().then(render);
 }
 
 const findAircraft = (hex) => state.aircraft?.find((a) => a.hex === hex) ?? state.viewAircraft.find((a) => a.hex === hex);

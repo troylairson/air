@@ -243,3 +243,32 @@ test('helicopters: category A7, else type code or description', () => {
   assert.equal(sizeClass({ category: null, type: 'C172' }), 'light');
   assert.equal(sizeClass({ category: 'A3', type: 'EC35' }), 'large'); // a broadcast category wins
 });
+
+// ENY4077 (Envoy) was flying Chicago -> Akron-Canton, but the community data lists ORD-YHZ-ORD
+// (Halifax). Near Akron it's ~135 nm off the ORD-YHZ line, low and ~280 nm from either airport.
+const ORD = { code: 'ORD', lat: 41.9786, lon: -87.9048 };
+const YHZ = { code: 'YHZ', lat: 44.8808, lon: -63.5086 };
+const CAK = { code: 'CAK', lat: 40.9161, lon: -81.4422 };
+
+test('pickLeg: rejects a long leg the plane is far below cruise on (ENY4077 ORD-YHZ near Akron)', () => {
+  const descendingIntoCak = { lat: 40.95, lon: -81.9, track: 95, altitudeFt: 6000 };
+  assert.equal(pickLeg({ airports: [ORD, YHZ, ORD] }, descendingIntoCak), null);
+  assert.equal(pickLeg({ airports: [ORD, YHZ, ORD] }, { ...descendingIntoCak, track: 275 }), null); // either direction
+  assert.equal(pickLeg({ airports: [ORD, CAK] }, descendingIntoCak).destination.code, 'CAK'); // the real route fits
+});
+
+test('pickLeg: 135 nm off a 1,074 nm leg is too far even at cruise', () => {
+  assert.equal(pickLeg({ airports: [ORD, YHZ] }, { lat: 40.96, lon: -81.52, track: 75, altitudeFt: 35000 }), null);
+});
+
+test('pickLeg: low-altitude rule spares short hops and climb-outs', () => {
+  const DTW = { code: 'DTW', lat: 42.2124, lon: -83.3534 };
+  assert.equal(pickLeg({ airports: [DTW, CAK] }, { lat: 41.6, lon: -82.4, track: 120, altitudeFt: 9000 }).destination.code, 'CAK'); // 120 nm leg
+  assert.equal(pickLeg({ airports: [ORD, YHZ] }, { lat: 42.1, lon: -86.9, track: 80, altitudeFt: 8000 }).destination.code, 'YHZ'); // just out of ORD
+});
+
+test('pickLeg: keeps the preferred leg while it fits, so the card does not flip', () => {
+  const nearJfk = { lat: 40.7, lon: -74.1, track: 180 }; // circling 20 nm west of JFK: heading fits neither leg
+  assert.equal(pickLeg({ airports: [JFK, CVG, JFK] }, nearJfk, { origin: 'CVG', destination: 'JFK' }).origin.code, 'CVG');
+  assert.equal(pickLeg({ airports: [JFK, CVG, JFK] }, nearJfk, { origin: 'JFK', destination: 'CVG' }).origin.code, 'JFK');
+});
