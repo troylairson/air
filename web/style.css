@@ -200,6 +200,7 @@ body.with-map .list li:last-child { border-bottom: none; }
 }
 
 .leaflet-marker-icon.map-plane { transition: transform 1s linear, opacity 1s; }
+.no-glide .leaflet-marker-icon.map-plane { transition: none; }
 .map-plane-body { width: 32px; height: 32px; transition: transform 1s; }
 .map-plane-body svg { width: 100%; height: 100%; fill: #c9d4e2; filter: drop-shadow(0 1px 2px #000); }
 .map-plane.is-hero .map-plane-body svg { fill: var(--accent); transform: scale(1.35); }
@@ -233,7 +234,7 @@ body.with-map .list li:last-child { border-bottom: none; }
 
 /* Turns light map tiles (OpenStreetMap) into a dim dark map that matches the page. */
 .dark-tiles .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(180deg) brightness(0.7) contrast(0.9) saturate(0.4);
+  filter: invert(1) hue-rotate(180deg) brightness(var(--tile-brightness, 0.9)) contrast(0.9) saturate(0.4);
 }
 .leaflet-control-attribution.leaflet-control {
   background: rgba(5, 8, 13, 0.6);
@@ -241,3 +242,12 @@ body.with-map .list li:last-child { border-bottom: none; }
   font-size: 10px;
 }
 .leaflet-control-attribution a { color: var(--muted); }
+
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  background: rgba(13, 20, 31, 0.9);
+  color: var(--text);
+  border-bottom-color: var(--line);
+}
+.leaflet-bar { border: 1px solid var(--line) !important; box-shadow: none !important; }
+body.idle-cursor .leaflet-control-zoom { opacity: 0; transition: opacity 0.5s; } /* hide with the pointer */

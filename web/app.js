@@ -19,6 +19,9 @@ const DEFAULTS = {
     tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     darkTiles: true,
+    tileBrightness: 0.9, // with darkTiles: higher is a lighter map
+    viewRadiusNm: 4, // how far from home the map shows at rest
+    recenterSeconds: 60, // after you drag or zoom, return to the home view this long after
     trailMinutes: 15,
   },
 };

@@ -14,18 +14,21 @@ export function createMap(element, config) {
   const { home, radiusNm, fetchRadiusMultiplier, map: opts } = config;
   const map = L.map(element, {
     zoomControl: false,
-    dragging: false,
-    scrollWheelZoom: false,
     doubleClickZoom: false, // double-click toggles full screen instead
     boxZoom: false,
     keyboard: false,
-    touchZoom: false,
     zoomSnap: 0.25,
-    fadeAnimation: false,
-    zoomAnimation: false,
+    zoomDelta: 0.5,
+    wheelPxPerZoomLevel: 120,
   });
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
   L.tileLayer(opts.tileUrl, { attribution: opts.attribution, subdomains: 'abcd', maxZoom: 19 }).addTo(map);
   element.classList.toggle('dark-tiles', Boolean(opts.darkTiles));
+  element.style.setProperty('--tile-brightness', String(opts.tileBrightness));
+
+  // Planes glide between positions (CSS transition), but must jump when the zoom changes.
+  map.on('zoomstart', () => element.classList.add('no-glide'));
+  map.on('zoomend', () => requestAnimationFrame(() => requestAnimationFrame(() => element.classList.remove('no-glide'))));
 
   L.circle([home.lat, home.lon], {
     radius: radiusNm * NM_TO_M,
@@ -42,11 +45,22 @@ export function createMap(element, config) {
   const routeLayer = L.layerGroup().addTo(map);
   const planes = new Map(); // hex -> { marker, trail: [[lat, lon, t]], lastSeen }
 
-  // Frames the fetch radius in the part of the screen the cards don't cover.
-  function fit(padding) {
-    const bounds = L.latLng(home.lat, home.lon).toBounds(2 * radiusNm * fetchRadiusMultiplier * NM_TO_M);
+  // Frames map.viewRadiusNm around home in the part of the screen the cards don't cover.
+  let homePadding = null;
+  function fit(padding = homePadding) {
+    if (!padding) return;
+    homePadding = padding;
+    const bounds = L.latLng(home.lat, home.lon).toBounds(2 * (opts.viewRadiusNm ?? radiusNm * fetchRadiusMultiplier) * NM_TO_M);
     map.fitBounds(bounds, { paddingTopLeft: padding.topLeft, paddingBottomRight: padding.bottomRight, animate: false });
   }
+
+  // You can drag and zoom; the view returns home after map.recenterSeconds without touching it.
+  let recenterTimer;
+  const touched = () => {
+    clearTimeout(recenterTimer);
+    if (opts.recenterSeconds > 0) recenterTimer = setTimeout(() => fit(), opts.recenterSeconds * 1000);
+  };
+  for (const type of ['wheel', 'mousedown', 'touchstart']) element.addEventListener(type, touched, { passive: true });
 
   const planeIcon = L.divIcon({
     className: 'map-plane',
