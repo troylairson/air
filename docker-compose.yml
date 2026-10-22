@@ -10,7 +10,7 @@ services:
     env_file: .env
     networks: [overhead]
     # No published port: only nginx talks to FreeFlight. For testing from an SSH shell on the
-    # box, add docker-compose.debug.yml (publishes 127.0.0.1:8000).
+    # box, add docker-compose.debug.yml (publishes 127.0.0.1:18000 by default).
 
   nginx:
     image: nginx:1.28.0-alpine
