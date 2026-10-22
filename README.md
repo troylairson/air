@@ -187,6 +187,8 @@ Goal: the display comes back by itself after a power cut, and changes take one c
    - Go to `http://<box-ip>:8090` and bookmark it.
    - **Full screen:** double-click the page or press `F` (`Esc` exits). The mouse pointer hides
      after 3 seconds without movement.
+   - **Zoom and pan:** scroll, pinch or use the +/− buttons to zoom, and drag to move the map. It
+     returns to the home view a minute after you stop (`map.recenterSeconds`).
    - **Keep it awake:** browsers only let a page keep the screen on over HTTPS, so set the
      computer's own display sleep to "never" while it's showing the page.
    - **Open straight into full screen** (optional), as an app window with no browser bars:
@@ -254,6 +256,9 @@ possible.
 | `map.trailMinutes` | `15` | How much of each aircraft's trail to keep |
 | `map.tileUrl`, `map.attribution` | OpenStreetMap | Map background tiles and their credit line; any Leaflet tile URL works |
 | `map.darkTiles` | `true` | Invert light tiles into a dark map. Set `false` for tiles that are already dark. |
+| `map.tileBrightness` | `0.9` | How light the darkened map is (try 0.7 to 1.2) |
+| `map.viewRadiusNm` | `4` | How far from home the map shows when nobody is touching it |
+| `map.recenterSeconds` | `60` | After you drag or zoom, the map returns to the home view this many seconds later (`0` = never) |
 
 To change the location or radius: `nano config.json`, then `./start.sh`. The screen reloads
 within a minute.
