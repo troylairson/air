@@ -246,6 +246,9 @@ body.cards-hidden main { display: none; }
 .map-plane.is-hero .map-plane-body svg { fill: var(--accent); }
 .map-plane.lost { opacity: 0.35; }
 .leaflet-marker-icon.map-plane { cursor: pointer; }
+.map-bulk { position: absolute; pointer-events: none; } /* clicks reach the map, which hit-tests */
+#map.over-plane { cursor: pointer; }
+#map.few-labels .map-plane:not(.is-hero) .map-plane-label { display: none; }
 
 /* A plane picked on the map */
 .picked {
