@@ -39,9 +39,28 @@ const AIRPORTS = {
 
 const AIRLINES = { BAW: 'British Airways', EIN: 'Aer Lingus', UAL: 'United Airlines', DLH: 'Lufthansa', AAL: 'American Airlines' };
 
-// adsb.lol-style routes (tried first): multi-leg for EI154, and a stale one for AAL2401 that the
+// Standing-data routes (tried first): multi-leg for EI154, and a stale one for AAL2401 that the
 // display should reject ("Route unconfirmed") since the plane is nowhere near Dallas-Philadelphia.
-const ROUTESET = { EIN154: ['DUB', 'LHR', 'DUB'], AAL2401: ['DFW', 'PHL'] };
+const STANDING_ROUTES = { EIN154: ['DUB', 'LHR', 'DUB'], AAL2401: ['DFW', 'PHL'] };
+const ICAO = { DFW: 'KDFW', PHL: 'KPHL', JFK: 'KJFK', LHR: 'EGLL', DUB: 'EIDW', SFO: 'KSFO', FRA: 'EDDF' };
+
+// The community standing-data CSV files (/api/sd/...), built from the tables above.
+function standingDataFile(path) {
+  let m = path.match(/^routes\/schema-01\/[A-Z0-9]\/([A-Z0-9]+)-all\.csv$/);
+  if (m) {
+    const rows = Object.entries(STANDING_ROUTES).filter(([cs]) => cs.startsWith(m[1]));
+    if (!rows.length) return null;
+    return '\uFEFFCallsign,Code,Number,AirlineCode,AirportCodes\r\n' +
+      rows.map(([cs, codes]) => `${cs},${m[1]},${cs.slice(3)},${m[1]},${codes.map((c) => ICAO[c]).join('-')}\r\n`).join('');
+  }
+  m = path.match(/^airports\/schema-01\/[A-Z0-9]\/([A-Z0-9]{2})\.csv$/);
+  if (m) {
+    const rows = Object.entries(ICAO).filter(([, icao]) => icao.startsWith(m[1]));
+    return '\uFEFFCode,Name,ICAO,IATA,Location,CountryISO2,Latitude,Longitude,AltitudeFeet\r\n' +
+      rows.map(([iata, icao]) => { const [city, lat, lon] = AIRPORTS[iata]; return `${icao},"${city} Airport, Main",${icao},${iata},${city},XX,${lat},${lon},0\r\n`; }).join('');
+  }
+  return null;
+}
 
 const ROUTES = {
   BAW117: { airline: 'British Airways', iata: 'BA117', o: 'JFK', d: 'LHR' },
@@ -75,21 +94,9 @@ http
     if (p === '/__dev/empty') return send(res, 200, { empty: (empty = !empty) });
     if (p === '/config.json') return send(res, 200, fs.readFileSync(path.join(root, configPath)));
 
-    if ((p === '/api/routeset' || p === '/api/0/routeset') && req.method === 'POST') {
-      let body = '';
-      req.on('data', (c) => (body += c));
-      req.on('end', () => {
-        const planes = JSON.parse(body || '{}').planes ?? [];
-        send(res, 200, planes.map(({ callsign }) => {
-          const codes = ROUTESET[callsign];
-          if (!codes) return { callsign, _airport_codes_iata: 'unknown', _airports: [] };
-          return { callsign, _airport_codes_iata: codes.join('-'), plausible: true, _airports: codes.map((code) => {
-            const [location, lat, lon] = AIRPORTS[code];
-            return { iata: code, icao: null, location, name: `${location} airport`, lat, lon };
-          }) };
-        }));
-      });
-      return;
+    if (p.startsWith('/api/sd/')) {
+      const csv = standingDataFile(p.slice('/api/sd/'.length));
+      return csv === null ? send(res, 404, 'not found', 'text/plain') : send(res, 200, csv, 'text/plain');
     }
 
     let m = p.match(/^\/api\/aircraft\/(-?[\d.]+)\/(-?[\d.]+)\/([\d.]+)$/);

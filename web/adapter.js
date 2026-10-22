@@ -123,22 +123,80 @@ export function parseRoute(json) {
   return { airline: str(fr.airline?.name), flightNumber: str(fr.callsign_iata), airports, source: 'adsbdb' };
 }
 
-// adsb.lol /api/0/routeset answer (a list, one entry per callsign asked) -> route, or null when
-// it doesn't know the callsign. Its data is the community standing-data route list, which keeps
-// multi-leg flights (e.g. JFK-CVG-JFK) and is updated daily. It has no airline name or IATA number.
-export function parseRouteSet(json, callsign) {
-  const list = Array.isArray(json) ? json : [];
-  const entry = list.find((e) => e?.callsign === callsign) ?? list[0];
-  const raw = Array.isArray(entry?._airports) ? entry._airports : [];
-  const airports = raw.map((a) => ({
-    code: str(a?.iata) ?? str(a?.icao),
-    city: str(a?.location),
-    name: str(a?.name),
-    lat: num(a?.lat),
-    lon: num(a?.lon),
-  }));
-  if (airports.length < 2 || airports.some((a) => !a.code)) return null;
-  return { airline: null, flightNumber: null, airports, source: 'adsb.lol' };
+// ---- Community route data: github.com/vradarserver/standing-data (updated daily, multi-leg).
+// Layout and rules from its routes/schema-01 and airports/schema-01 READMEs.
+
+// Callsign -> { code, number, callsign } in the data's normalised form (leading zeros dropped from
+// the number: DAL0123 -> DAL123, EZY0000 -> EZY0), or null for callsigns it can't hold
+// (registrations, or numbers longer than four characters).
+export function normalizeCallsign(callsign) {
+  const m = /^([A-Z]{3})(\d[A-Z0-9]*)$/.exec(callsign ?? '');
+  if (!m) return null;
+  let number = m[2].replace(/^0+/, '');
+  if (number === '' || /^[A-Z]/.test(number)) number = `0${number}`;
+  if (!/^(\d|\d\d|\dA|\d\d\d|\d\dA|\dAA|\d\d\d\d|\d\d\dA|\d\dAA)$/.test(number.replace(/[A-Z]/g, 'A'))) return null;
+  return { code: m[1], number, callsign: m[1] + number };
+}
+
+// Route files that may hold this callsign, in the order to try: <code>-all.csv, or for airlines
+// with over 10,000 routes, <code>-<first digit of the number>.csv.
+export function routeFiles({ code, number }) {
+  return [`routes/schema-01/${code[0]}/${code}-all.csv`, `routes/schema-01/${code[0]}/${code}-${number[0]}.csv`];
+}
+
+// Airport file for an airport code: EGLL -> airports/schema-01/E/EG.csv
+export const airportFile = (code) => `airports/schema-01/${code[0]}/${code.slice(0, 2)}.csv`;
+
+// CSV text -> list of row objects keyed by the header row. Handles quoted fields ("a, b"), doubled
+// quotes inside them, and the byte-order mark the files start with.
+export function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  const src = text.replace(/^\uFEFF/, '');
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quoted) {
+      if (c === '"' && src[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') {
+      row.push(field);
+      field = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && src[i + 1] === '\n') i++;
+      row.push(field);
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+      field = '';
+    } else field += c;
+  }
+  if (field !== '' || row.length) rows.push([...row, field]);
+  const [header, ...body] = rows;
+  return header ? body.map((r) => Object.fromEntries(header.map((h, i) => [h, r[i] ?? '']))) : [];
+}
+
+// Route file text -> the callsign's airport codes in flying order (['KJFK', 'KCVG', 'KJFK']), or null.
+export function findRouteCodes(csvText, callsign) {
+  const row = parseCsv(csvText).find((r) => r.Callsign === callsign);
+  const codes = row?.AirportCodes?.split('-').filter(Boolean) ?? [];
+  return codes.length >= 2 ? codes : null;
+}
+
+const coord = (v) => (v === undefined || v.trim() === '' ? null : num(Number(v)));
+
+// Airport file text -> Map of airport code -> { code, city, name, lat, lon } (code shown is the IATA one).
+export function parseAirports(csvText) {
+  return new Map(
+    parseCsv(csvText).map((r) => [
+      r.Code,
+      { code: str(r.IATA) ?? str(r.ICAO) ?? r.Code, city: str(r.Location), name: str(r.Name), lat: coord(r.Latitude), lon: coord(r.Longitude) },
+    ]),
+  );
 }
 
 // Signed distance (nm) of point p from the great circle o->d (cross-track), and how far along

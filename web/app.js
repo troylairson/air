@@ -1,5 +1,6 @@
 import {
-  parseFeed, filterAircraft, parseRoute, parseRouteSet, pickLeg, isPrivateFlight, modelName, airlineCode, parseAirline,
+  parseFeed, filterAircraft, parseRoute, pickLeg, isPrivateFlight, modelName, airlineCode, parseAirline,
+  normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports,
 } from './adapter.js';
 import { createMap } from './map.js';
 
@@ -11,7 +12,7 @@ const DEFAULTS = {
   refreshSeconds: 5,
   listCount: 5,
   sources: ['/api/aircraft/{lat}/{lon}/{radius}'],
-  routeSetUrl: '/api/routeset', // adsb.lol route lookup (POST); '' to use adsbdb only
+  standingDataUrl: '/api/sd', // community route data (GitHub, via nginx); '' to use adsbdb only
   routeUrl: '/api/route/{callsign}',
   airlineUrl: '/api/airline/{code}',
   clock24h: true,
@@ -86,12 +87,11 @@ function fmt(kind, value, digits = 0) {
 
 // ---------------------------------------------------------------- data
 
-async function fetchJson(url, body) {
+async function fetchJson(url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const post = body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
-    const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store', ...post });
+    const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
     return { status: res.status, ok: res.ok, json: res.ok || res.status === 404 ? await res.json().catch(() => null) : null };
   } finally {
     clearTimeout(timer);
@@ -122,7 +122,49 @@ async function fetchAircraft() {
   throw lastError ?? new Error('No data sources configured');
 }
 
-// Route for a callsign: adsb.lol first (community route data, updated daily, multi-leg), then
+// A standing-data CSV file, fetched once per page load and shared: its text, or null if it
+// doesn't exist (404). Network errors throw and aren't remembered, so they're retried later.
+const sdFiles = new Map();
+function sdFile(path) {
+  if (!sdFiles.has(path)) {
+    const load = (async () => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const res = await fetch(`${state.config.standingDataUrl}/${path}`, { signal: ctrl.signal });
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+        return await res.text();
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    load.catch(() => sdFiles.delete(path));
+    sdFiles.set(path, load);
+  }
+  return sdFiles.get(path);
+}
+
+// Route from the standing data: { route } (route null if it isn't listed). Throws on network errors.
+async function standingDataRoute(callsign) {
+  const norm = normalizeCallsign(callsign);
+  if (!norm) return { route: null };
+  let codes = null;
+  for (const file of routeFiles(norm)) {
+    const text = await sdFile(file);
+    if (text !== null) {
+      codes = findRouteCodes(text, norm.callsign);
+      break; // the airline's routes are all in the first file that exists
+    }
+  }
+  if (!codes) return { route: null };
+  const files = [...new Set(codes.map(airportFile))];
+  const tables = await Promise.all(files.map(async (f) => parseAirports((await sdFile(f)) ?? '')));
+  const lookup = (code) => tables.map((t) => t.get(code)).find(Boolean) ?? { code, city: null, name: null, lat: null, lon: null };
+  return { route: { airline: null, flightNumber: null, airports: codes.map(lookup), source: 'standing-data' } };
+}
+
+// Route for a callsign: the community standing data first (updated daily, multi-leg), then
 // adsbdb. Either can be stale; pickLeg() checks the result against where the plane actually is.
 async function lookupRoute(a) {
   const { callsign } = a;
@@ -131,13 +173,10 @@ async function lookupRoute(a) {
   state.routes.set(callsign, { route: undefined, retryAt: Date.now() + ROUTE_RETRY_MS });
   let route = null;
   let answered = false; // a source said "unknown" (rather than failing): don't ask again
-  if (state.config.routeSetUrl) {
+  if (state.config.standingDataUrl) {
     try {
-      const { ok, json } = await fetchJson(state.config.routeSetUrl, { planes: [{ callsign, lat: a.lat, lng: a.lon }] });
-      if (ok) {
-        route = parseRouteSet(json, callsign);
-        answered = true;
-      }
+      ({ route } = await standingDataRoute(callsign));
+      answered = true;
     } catch {
       // try adsbdb
     }
