@@ -156,7 +156,7 @@ export function createMap(element, config, { onSelect } = {}) {
   requestAnimationFrame(frame);
 
   // aircraft: filtered list from the latest fetch; hero: the closest one (or null);
-  // labelFor(a): text under each plane; heroRoute: the hero's route, if known.
+  // labelFor(a): text under each plane; heroRoute: the leg the hero is on ({ origin, destination }), if known.
   function update(aircraft, hero, labelFor, heroRoute) {
     const now = Date.now();
     for (const a of aircraft) {

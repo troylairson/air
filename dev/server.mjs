@@ -28,6 +28,8 @@ const FLIGHTS = [
 ];
 
 const AIRPORTS = {
+  DFW: ['Dallas-Fort Worth', 32.8998, -97.0403],
+  PHL: ['Philadelphia', 39.8744, -75.2424],
   JFK: ['New York', 40.6413, -73.7781],
   LHR: ['London', 51.47, -0.4543],
   DUB: ['Dublin', 53.4213, -6.2701],
@@ -36,6 +38,10 @@ const AIRPORTS = {
 };
 
 const AIRLINES = { BAW: 'British Airways', EIN: 'Aer Lingus', UAL: 'United Airlines', DLH: 'Lufthansa', AAL: 'American Airlines' };
+
+// adsb.lol-style routes (tried first): multi-leg for EI154, and a stale one for AAL2401 that the
+// display should reject ("Route unconfirmed") since the plane is nowhere near Dallas-Philadelphia.
+const ROUTESET = { EIN154: ['DUB', 'LHR', 'DUB'], AAL2401: ['DFW', 'PHL'] };
 
 const ROUTES = {
   BAW117: { airline: 'British Airways', iata: 'BA117', o: 'JFK', d: 'LHR' },
@@ -68,6 +74,23 @@ http
     if (p === '/__dev/down') return send(res, 200, { down: (down = !down) });
     if (p === '/__dev/empty') return send(res, 200, { empty: (empty = !empty) });
     if (p === '/config.json') return send(res, 200, fs.readFileSync(path.join(root, configPath)));
+
+    if ((p === '/api/routeset' || p === '/api/0/routeset') && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        const planes = JSON.parse(body || '{}').planes ?? [];
+        send(res, 200, planes.map(({ callsign }) => {
+          const codes = ROUTESET[callsign];
+          if (!codes) return { callsign, _airport_codes_iata: 'unknown', _airports: [] };
+          return { callsign, _airport_codes_iata: codes.join('-'), plausible: true, _airports: codes.map((code) => {
+            const [location, lat, lon] = AIRPORTS[code];
+            return { iata: code, icao: null, location, name: `${location} airport`, lat, lon };
+          }) };
+        }));
+      });
+      return;
+    }
 
     let m = p.match(/^\/api\/aircraft\/(-?[\d.]+)\/(-?[\d.]+)\/([\d.]+)$/);
     if (m) {

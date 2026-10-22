@@ -254,7 +254,8 @@ possible.
 | `refreshSeconds` | `5` | How often to fetch aircraft |
 | `listCount` | `5` | Most rows under the main card (fewer if the screen is short) |
 | `sources` | FreeFlight | Data URLs tried in order. `{lat}`, `{lon}` and `{radius}` are filled in. |
-| `routeUrl` | adsbdb via nginx | Route lookup URL. `{callsign}` is filled in. |
+| `routeSetUrl` | adsb.lol via nginx | First route lookup (POST). `""` to use adsbdb only. |
+| `routeUrl` | adsbdb via nginx | Fallback route lookup URL. `{callsign}` is filled in. |
 | `airlineUrl` | adsbdb via nginx | Airline-name lookup URL. `{code}` (the callsign's ICAO prefix) is filled in. |
 | `clock24h` | `true` | 24-hour clock |
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
@@ -274,8 +275,16 @@ within a minute.
 - `web/adapter.js` turns ADSBExchange-v2-style records (FreeFlight's `/v2/point`, adsb.lol,
   airplanes.live, or a readsb `aircraft.json`) into one shape, and works out distance and bearing
   from home itself. Swapping the data source is a config change.
-- Routes come from adsbdb, looked up once per callsign and cached by nginx for 24 hours, including
-  "unknown" answers. A flight with no route still shows; the display never guesses one.
+- Routes are looked up once per callsign: first from adsb.lol's route lookup, which uses the
+  community [standing-data](https://github.com/vradarserver/standing-data) route list (updated
+  daily, and it keeps multi-leg flights such as JFK → CVG → JFK), then from adsbdb (cached by nginx
+  for 24 hours) for callsigns adsb.lol doesn't know.
+- Route databases go stale, especially for regional airlines that reuse flight numbers, so every
+  route is checked against where the plane actually is. A leg counts only if the plane is within
+  100 nm (or 20% of the leg) of the straight line between its airports, between them, and heading
+  towards the destination (not required within 40 nm of either airport). The card shows the leg
+  that fits; if none does it says "Route unconfirmed" and no route line is drawn. A flight with no
+  route still shows; the display never guesses one.
 - When adsbdb has no route (or no airline) for a flight, the airline is looked up from the
   callsign's three-letter ICAO prefix (DAL1605 → Delta) through adsbdb's airline lookup, cached for
   7 days.
@@ -326,6 +335,7 @@ Your `config.json` and `.env` aren't in git, so `git pull` never touches them.
 | --- | --- |
 | "Waiting for data" or a stale marker that stays | `docker logs --tail 50 overhead-freeflight-1`, then the Phase 1 checks with `DEBUG=1 ./start.sh` |
 | Every flight says "Route unknown" | `docker exec overhead-nginx-1 wget -qO- http://127.0.0.1/api/route/BAW1`. If it fails, the box can't reach api.adsbdb.com. |
+| Routes show "Route unconfirmed" | The route databases list a route the plane isn't flying (stale data), so it's hidden rather than shown wrong. |
 | "Config error" on screen | `config.json` is missing or invalid; `./start.sh` checks it when `python3` is on the box |
 | Page doesn't load | `docker ps` should list both containers; `ss -ltn \| grep 8090` should show the port |
 | `docker` says "permission denied" | Put `sudo` in front, e.g. `sudo docker ps` |
