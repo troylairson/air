@@ -100,6 +100,10 @@ export function filterAircraft(list, { minAltitudeFt, maxAltitudeFt, maxPosition
   );
 }
 
+// A route is { airline, flightNumber, airports: [...] }: two or more airports in flying order
+// (multi-leg flights have more), each { code, city, name, lat, lon }. pickLeg() below decides
+// which leg, if any, the aircraft is actually on.
+
 // adsbdb /v0/callsign/<cs> body -> route, or null when the callsign is unknown.
 export function parseRoute(json) {
   const fr = json?.response?.flightroute;
@@ -114,12 +118,73 @@ export function parseRoute(json) {
           lon: num(a.longitude),
         }
       : null;
-  return {
-    airline: str(fr.airline?.name),
-    flightNumber: str(fr.callsign_iata),
-    origin: airport(fr.origin),
-    destination: airport(fr.destination),
-  };
+  const airports = [fr.origin, fr.midpoint, fr.destination].map(airport).filter(Boolean);
+  if (airports.length < 2) return null;
+  return { airline: str(fr.airline?.name), flightNumber: str(fr.callsign_iata), airports, source: 'adsbdb' };
+}
+
+// adsb.lol /api/0/routeset answer (a list, one entry per callsign asked) -> route, or null when
+// it doesn't know the callsign. Its data is the community standing-data route list, which keeps
+// multi-leg flights (e.g. JFK-CVG-JFK) and is updated daily. It has no airline name or IATA number.
+export function parseRouteSet(json, callsign) {
+  const list = Array.isArray(json) ? json : [];
+  const entry = list.find((e) => e?.callsign === callsign) ?? list[0];
+  const raw = Array.isArray(entry?._airports) ? entry._airports : [];
+  const airports = raw.map((a) => ({
+    code: str(a?.iata) ?? str(a?.icao),
+    city: str(a?.location),
+    name: str(a?.name),
+    lat: num(a?.lat),
+    lon: num(a?.lon),
+  }));
+  if (airports.length < 2 || airports.some((a) => !a.code)) return null;
+  return { airline: null, flightNumber: null, airports, source: 'adsb.lol' };
+}
+
+// Signed distance (nm) of point p from the great circle o->d (cross-track), and how far along
+// o->d its foot lies (along-track, nm; negative = behind o).
+function trackDistances(o, d, p) {
+  const r = 3440.065;
+  const d13 = distanceNm(o.lat, o.lon, p.lat, p.lon) / r;
+  const t13 = toRad(bearingDeg(o.lat, o.lon, p.lat, p.lon));
+  const t12 = toRad(bearingDeg(o.lat, o.lon, d.lat, d.lon));
+  const xt = Math.asin(Math.sin(d13) * Math.sin(t13 - t12));
+  const at = Math.acos(Math.min(1, Math.max(-1, Math.cos(d13) / Math.cos(xt))));
+  return { cross: xt * r, along: (Math.cos(t13 - t12) < 0 ? -at : at) * r };
+}
+
+const angleBetween = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+
+// The leg of `route` the aircraft is plausibly flying, as { origin, destination }, or null when no
+// leg fits (a stale or wrong route). A leg fits when the aircraft is
+// - within max(100 nm, 20% of the leg) of the straight great-circle line (real paths wander),
+// - between the two airports (50 nm slack at each end), and
+// - heading towards the destination (within 90°; not required within 40 nm of either airport,
+//   where departures and approaches turn).
+// Of the legs that fit, one whose direction matches the heading wins (it matters next to an
+// airport a multi-leg route both reaches and leaves), then the one closest to its line.
+// Airports without coordinates can't be checked; such a leg is accepted only if it's the whole route.
+export function pickLeg(route, a) {
+  const airports = route?.airports ?? [];
+  let best = null;
+  for (let i = 0; i + 1 < airports.length; i++) {
+    const o = airports[i];
+    const d = airports[i + 1];
+    if ([o.lat, o.lon, d.lat, d.lon].some((v) => v === null || v === undefined)) {
+      if (airports.length === 2) return { origin: o, destination: d, checked: false };
+      continue;
+    }
+    const length = distanceNm(o.lat, o.lon, d.lat, d.lon);
+    const { cross, along } = trackDistances(o, d, a);
+    const nearAirport = Math.min(distanceNm(a.lat, a.lon, o.lat, o.lon), distanceNm(a.lat, a.lon, d.lat, d.lon)) < 40;
+    const offLine = Math.abs(cross);
+    const noTrack = a.track === null || a.track === undefined;
+    const headingOk = !noTrack && angleBetween(a.track, bearingDeg(a.lat, a.lon, d.lat, d.lon)) <= 90;
+    const fits = offLine <= Math.max(100, 0.2 * length) && along >= -50 && along <= length + 50 && (noTrack || headingOk || nearAirport);
+    const better = !best || (headingOk !== best.headingOk ? headingOk : offLine < best.offLine);
+    if (fits && better) best = { origin: o, destination: d, checked: true, offLine, headingOk };
+  }
+  return best && { origin: best.origin, destination: best.destination, checked: best.checked };
 }
 
 // A private/GA flight broadcasts its registration as its callsign (N333FA, or GABCD for G-ABCD).

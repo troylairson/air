@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass, parseRouteSet, pickLeg } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -73,8 +73,9 @@ test('parses an adsbdb route, and returns null for an unknown callsign', () => {
   });
   assert.equal(r.airline, 'British Airways');
   assert.equal(r.flightNumber, 'BA117');
-  assert.deepEqual(r.origin, { code: 'JFK', city: 'New York', name: 'John F Kennedy International Airport', lat: null, lon: null });
-  assert.equal(r.destination.code, 'EGLL');
+  assert.deepEqual(r.airports[0], { code: 'JFK', city: 'New York', name: 'John F Kennedy International Airport', lat: null, lon: null });
+  assert.equal(r.airports[1].code, 'EGLL');
+  assert.equal(r.source, 'adsbdb');
   assert.equal(parseRoute({ response: 'unknown callsign' }), null);
 });
 
@@ -106,8 +107,8 @@ test('route keeps airport coordinates for the map', () => {
     origin: { iata_code: 'JFK', latitude: 40.6413, longitude: -73.7781 },
     destination: { iata_code: 'LHR', latitude: 51.47, longitude: -0.4543 },
   } } });
-  assert.equal(r.origin.lat, 40.6413);
-  assert.equal(r.destination.lon, -0.4543);
+  assert.equal(r.airports[0].lat, 40.6413);
+  assert.equal(r.airports[1].lon, -0.4543);
 });
 
 test('feed time: v2 ms, readsb seconds, and a fallback for missing or skewed clocks', () => {
@@ -160,4 +161,59 @@ test('size class from emitter category, else type code', () => {
 
 test('normalizeRecord keeps the emitter category', () => {
   assert.equal(normalizeRecord({ hex: 'a', lat: 51, lon: 0, category: 'A1' }, home).category, 'A1');
+});
+
+// RPA4388 seen near Akron, Ohio, flying east: really Cincinnati -> New York (JFK-CVG-JFK in the
+// community data), while adsbdb said Raleigh/Durham -> New York.
+const JFK = { code: 'JFK', city: 'New York', lat: 40.6413, lon: -73.7781 };
+const CVG = { code: 'CVG', city: 'Cincinnati', lat: 39.0488, lon: -84.6678 };
+const RDU = { code: 'RDU', city: 'Raleigh/Durham', lat: 35.8776, lon: -78.7875 };
+const nearAkron = { lat: 40.96, lon: -81.52, track: 85 };
+
+test('adsb.lol routeset: multi-leg airports with coordinates; null when unknown', () => {
+  const r = parseRouteSet([{
+    callsign: 'RPA4388', airport_codes: 'KJFK-KCVG-KJFK', _airport_codes_iata: 'JFK-CVG-JFK', plausible: true,
+    _airports: [
+      { iata: 'JFK', icao: 'KJFK', location: 'New York', name: 'John F Kennedy International Airport', lat: 40.6413, lon: -73.7781 },
+      { iata: 'CVG', icao: 'KCVG', location: 'Cincinnati', name: 'Cincinnati Northern Kentucky International Airport', lat: 39.0488, lon: -84.6678 },
+      { iata: 'JFK', icao: 'KJFK', location: 'New York', name: 'John F Kennedy International Airport', lat: 40.6413, lon: -73.7781 },
+    ],
+  }], 'RPA4388');
+  assert.deepEqual(r.airports.map((a) => a.code), ['JFK', 'CVG', 'JFK']);
+  assert.equal(r.airports[1].city, 'Cincinnati');
+  assert.equal(r.source, 'adsb.lol');
+  assert.equal(parseRouteSet([{ callsign: 'XXX1', _airport_codes_iata: 'unknown', _airports: [] }], 'XXX1'), null);
+  assert.equal(parseRouteSet([], 'XXX1'), null);
+});
+
+test('pickLeg: the leg the plane is flying, from a multi-leg route', () => {
+  const leg = pickLeg({ airports: [JFK, CVG, JFK] }, nearAkron);
+  assert.equal(leg.origin.code, 'CVG');
+  assert.equal(leg.destination.code, 'JFK');
+  // the same plane flying west would be on the JFK -> CVG leg
+  assert.equal(pickLeg({ airports: [JFK, CVG, JFK] }, { ...nearAkron, track: 265 }).destination.code, 'CVG');
+});
+
+test('pickLeg: rejects a stale route the plane is nowhere near', () => {
+  assert.equal(pickLeg({ airports: [RDU, JFK] }, nearAkron), null); // ~287 nm off the RDU-JFK line
+});
+
+test('pickLeg: rejects a route flown the wrong way, but not on approach', () => {
+  assert.equal(pickLeg({ airports: [CVG, JFK] }, { ...nearAkron, track: 265 }), null);
+  const nearJfk = { lat: 40.75, lon: -74.2, track: 250 }; // turning onto final, 20 nm out
+  assert.equal(pickLeg({ airports: [CVG, JFK] }, nearJfk).destination.code, 'JFK');
+});
+
+test('pickLeg: airports without coordinates are shown unchecked', () => {
+  const leg = pickLeg({ airports: [{ code: 'AAA', lat: null, lon: null }, { code: 'BBB', lat: null, lon: null }] }, nearAkron);
+  assert.equal(leg.checked, false);
+});
+
+test('pickLeg: next to an airport a route both reaches and leaves, the heading decides', () => {
+  const leavingJfk = { lat: 40.7, lon: -74.1, track: 270 }; // ~20 nm west of JFK, heading west
+  assert.equal(pickLeg({ airports: [JFK, CVG, JFK] }, leavingJfk).destination.code, 'CVG');
+  const arrivingJfk = { lat: 40.7, lon: -74.1, track: 90 };
+  assert.equal(pickLeg({ airports: [JFK, CVG, JFK] }, arrivingJfk).destination.code, 'JFK');
+  const climbingOut = { lat: 39.2, lon: -84.5, track: 200 }; // just after take-off from CVG, still turning
+  assert.equal(pickLeg({ airports: [CVG, JFK] }, climbingOut).destination.code, 'JFK');
 });

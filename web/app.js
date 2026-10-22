@@ -1,4 +1,6 @@
-import { parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, airlineCode, parseAirline } from './adapter.js';
+import {
+  parseFeed, filterAircraft, parseRoute, parseRouteSet, pickLeg, isPrivateFlight, modelName, airlineCode, parseAirline,
+} from './adapter.js';
 import { createMap } from './map.js';
 
 const DEFAULTS = {
@@ -9,6 +11,7 @@ const DEFAULTS = {
   refreshSeconds: 5,
   listCount: 5,
   sources: ['/api/aircraft/{lat}/{lon}/{radius}'],
+  routeSetUrl: '/api/routeset', // adsb.lol route lookup (POST); '' to use adsbdb only
   routeUrl: '/api/route/{callsign}',
   airlineUrl: '/api/airline/{code}',
   clock24h: true,
@@ -83,11 +86,12 @@ function fmt(kind, value, digits = 0) {
 
 // ---------------------------------------------------------------- data
 
-async function fetchJson(url) {
+async function fetchJson(url, body) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+    const post = body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+    const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store', ...post });
     return { status: res.status, ok: res.ok, json: res.ok || res.status === 404 ? await res.json().catch(() => null) : null };
   } finally {
     clearTimeout(timer);
@@ -118,20 +122,39 @@ async function fetchAircraft() {
   throw lastError ?? new Error('No data sources configured');
 }
 
-async function lookupRoute(callsign) {
+// Route for a callsign: adsb.lol first (community route data, updated daily, multi-leg), then
+// adsbdb. Either can be stale; pickLeg() checks the result against where the plane actually is.
+async function lookupRoute(a) {
+  const { callsign } = a;
   const cached = state.routes.get(callsign);
   if (cached && (cached.route !== undefined || Date.now() < cached.retryAt)) return;
   state.routes.set(callsign, { route: undefined, retryAt: Date.now() + ROUTE_RETRY_MS });
-  try {
-    const { ok, status, json } = await fetchJson(state.config.routeUrl.replace('{callsign}', encodeURIComponent(callsign)));
-    if (ok) state.routes.set(callsign, { route: parseRoute(json) });
-    else if (status === 404) state.routes.set(callsign, { route: null }); // unknown callsign: don't ask again
-  } catch {
-    // network error: retried after ROUTE_RETRY_MS
+  let route = null;
+  let answered = false; // a source said "unknown" (rather than failing): don't ask again
+  if (state.config.routeSetUrl) {
+    try {
+      const { ok, json } = await fetchJson(state.config.routeSetUrl, { planes: [{ callsign, lat: a.lat, lng: a.lon }] });
+      if (ok) {
+        route = parseRouteSet(json, callsign);
+        answered = true;
+      }
+    } catch {
+      // try adsbdb
+    }
   }
+  if (!route) {
+    try {
+      const { ok, status, json } = await fetchJson(state.config.routeUrl.replace('{callsign}', encodeURIComponent(callsign)));
+      if (ok) route = parseRoute(json);
+      answered ||= ok || status === 404;
+    } catch {
+      // network error
+    }
+  }
+  if (route || answered) state.routes.set(callsign, { route }); // else retried after ROUTE_RETRY_MS
   // No route, or a route without an airline: name the airline from the callsign's prefix instead.
   const code = airlineCode(callsign);
-  if (code && !state.routes.get(callsign)?.route?.airline) await lookupAirline(code);
+  if (code && !route?.airline) await lookupAirline(code);
   render();
 }
 
@@ -149,9 +172,11 @@ async function lookupAirline(code) {
 }
 
 const routeFor = (a) => (a.callsign ? state.routes.get(a.callsign)?.route ?? null : null);
+// The leg the plane is on right now, or null if its route doesn't fit where it is (stale data).
+const legFor = (a) => pickLeg(routeFor(a), a);
 const airlineFor = (a) => routeFor(a)?.airline ?? state.airlines.get(airlineCode(a.callsign))?.name ?? null;
 
-const lookupFor = (a) => a.callsign && !isPrivateFlight(a) && lookupRoute(a.callsign);
+const lookupFor = (a) => a.callsign && !isPrivateFlight(a) && lookupRoute(a);
 
 async function refresh() {
   const { altitudeFt } = state.config;
@@ -223,11 +248,14 @@ function renderHero(a) {
   const title = priv ? modelName(a) || a.registration || 'Private aircraft' : airlineFor(a) || a.registration || 'Unknown operator';
   const flight = priv ? a.registration || a.hex.toUpperCase() : r?.flightNumber || a.callsign;
   const subtitle = !priv && a.callsign !== flight ? a.callsign : null;
+  const leg = priv ? null : legFor(a);
   const route = priv
     ? '<span class="muted">Private flight</span>'
-    : r?.origin && r?.destination
-      ? `${placeName(r.origin)} <span class="to">→</span> ${placeName(r.destination)}`
-      : '<span class="muted">Route unknown</span>';
+    : leg
+      ? `${placeName(leg.origin)} <span class="to">→</span> ${placeName(leg.destination)}`
+      : r
+        ? '<span class="muted">Route unconfirmed</span>' // listed route doesn't fit where the plane is
+        : '<span class="muted">Route unknown</span>';
   const picked = a.hex === state.selected ? '<div class="picked">Selected · click the map to go back</div>' : '';
   return `${picked}
     <div class="hero-top">
@@ -249,7 +277,8 @@ function renderHero(a) {
 function renderRow(a) {
   const priv = isPrivateFlight(a);
   const r = priv ? null : routeFor(a);
-  const route = priv ? 'Private' : r?.origin && r?.destination ? `${esc(r.origin.code)} → ${esc(r.destination.code)}` : '';
+  const leg = priv ? null : legFor(a);
+  const route = priv ? 'Private' : leg ? `${esc(leg.origin.code)} → ${esc(leg.destination.code)}` : r ? 'Unconfirmed' : '';
   return `<li>
     <span class="cs">${esc(r?.flightNumber || a.callsign || a.registration || a.hex.toUpperCase())}</span>
     <span class="rt">${route}</span>
@@ -303,7 +332,7 @@ function updateMap(heroAc) {
   if (!state.map) return;
   const { radiusNm, fetchRadiusMultiplier } = state.config;
   const wide = state.aircraft.filter((a) => a.distanceNm <= radiusNm * fetchRadiusMultiplier);
-  const heroRoute = heroAc && !isPrivateFlight(heroAc) ? routeFor(heroAc) : null;
+  const heroRoute = heroAc && !isPrivateFlight(heroAc) ? legFor(heroAc) : null;
   state.map.update(wide, heroAc, mapLabel, heroRoute);
 }
 
