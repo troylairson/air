@@ -224,8 +224,10 @@ body.cards-hidden main { display: none; }
 .map-plane-body svg {
   width: 100%;
   height: 100%;
-  fill: #c9d4e2;
-  filter: drop-shadow(0 1px 2px #000);
+  fill: var(--plane-color, #ffd23f);
+  stroke: rgba(0, 0, 0, 0.85); /* thin dark outline: keeps planes clear over roads and labels */
+  stroke-width: 1.2;
+  paint-order: stroke fill;
   transform: scale(calc(var(--plane-size, 1) * var(--plane-pick, 1)));
 }
 /* Symbol size by aircraft size (sizeClass in adapter.js); the closest/picked plane is 35% bigger. */
@@ -243,7 +245,8 @@ body.cards-hidden main { display: none; }
 @media (prefers-reduced-motion: reduce) { .map-plane .rotor { animation: none; } }
 .map-plane[data-size="heavy"] { --plane-size: 1.15; }
 .map-plane.is-hero { --plane-pick: 1.35; }
-.map-plane.is-hero .map-plane-body svg { fill: var(--accent); }
+/* The closest/picked plane: white with an amber glow, so it stands apart from the gold ones. */
+.map-plane.is-hero .map-plane-body svg { fill: #fff; filter: drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 1px #000); }
 .map-plane.lost { opacity: 0.35; }
 .leaflet-marker-icon.map-plane { cursor: pointer; }
 .map-bulk { position: absolute; pointer-events: none; } /* clicks reach the map, which hit-tests */
@@ -268,13 +271,13 @@ body.cards-hidden.has-selection .list { display: none; }
   left: 50%;
   transform: translateX(-50%);
   font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: #c9d4e2;
+  color: #eef1f5;
   white-space: nowrap;
   text-shadow: 0 0 3px #000, 0 0 3px #000;
 }
 .map-plane.is-hero .map-plane-label { color: var(--accent); font-size: 14px; top: 36px; }
 
-.map-trail { stroke: #9fb3c8; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+.map-trail { stroke: var(--plane-color, #ffd23f); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 .map-trail.is-hero { stroke: var(--accent); stroke-width: 3; }
 
 .map-route {

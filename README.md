@@ -266,6 +266,7 @@ possible.
 | `map.tileUrl`, `map.attribution` | OpenStreetMap | Map background tiles and their credit line; any Leaflet tile URL works |
 | `map.darkTiles` | `true` | Invert light tiles into a dark map. Set `false` for tiles that are already dark. |
 | `map.tileBrightness` | `0.9` | How light the darkened map is (try 0.7 to 1.2) |
+| `map.planeColor` | `#ffd23f` (gold) | Colour of the planes and their trails; the closest/picked plane is white with an amber glow |
 | `map.viewRadiusNm` | `4` | How far from home the map shows when nobody is touching it |
 | `map.recenterSeconds` | `60` | After you drag or zoom, the map returns to the home view this many seconds later (`0` = never) |
 
