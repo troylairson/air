@@ -83,6 +83,47 @@ function aircraft(home) {
   });
 }
 
+// Wider traffic for zooming out: ~1,500 aircraft spread over 250 nm around home, each flying a
+// straight line that restarts every 10 minutes. Deterministic, so reloads look the same.
+const HOME = JSON.parse(fs.readFileSync(path.join(root, configPath), 'utf8')).home;
+const rand = (i, k) => { const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+const PREFIXES = ['DAL', 'AAL', 'UAL', 'SWA', 'JBU', 'RPA', 'SKW', 'EDV', 'FDX', 'UPS', 'ENY', 'NKS'];
+const TRAFFIC = Array.from({ length: 1500 }, (_, i) => {
+  const dist = 12 + 238 * Math.sqrt(rand(i, 1)); // even spread over the disc, outside the home area
+  const bearing = rand(i, 2) * 2 * Math.PI;
+  const kind = rand(i, 3);
+  const [cat, t, gs, alt] =
+    kind < 0.08 ? ['A1', 'C172', 100, 3500] : kind < 0.11 ? ['A7', 'EC35', 120, 1500] : kind < 0.2 ? ['A5', 'B77W', 480, 37000] : ['A3', 'A321', 440, 33000];
+  return {
+    hex: `f${i.toString(16).padStart(5, '0')}`,
+    category: cat,
+    flight: cat === 'A1' || cat === 'A7' ? `N${100 + i}` : `${PREFIXES[i % PREFIXES.length]}${100 + i}`,
+    t,
+    gs,
+    alt: Math.round(alt * (0.6 + 0.4 * rand(i, 4))),
+    lat0: HOME.lat + (dist / 60) * Math.cos(bearing),
+    lon0: HOME.lon + ((dist / 60) * Math.sin(bearing)) / Math.cos((HOME.lat * Math.PI) / 180),
+    track: rand(i, 5) * 360,
+    phase: rand(i, 6) * 600,
+  };
+});
+
+function traffic(center, radiusNm) {
+  const now = Date.now() / 1000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const out = [];
+  for (const p of TRAFFIC) {
+    const nm = (p.gs * ((now + p.phase) % 600)) / 3600;
+    const lat = p.lat0 + (nm / 60) * Math.cos(toRad(p.track));
+    const lon = p.lon0 + ((nm / 60) * Math.sin(toRad(p.track))) / Math.cos(toRad(p.lat0));
+    const dLat = (lat - center.lat) * 60;
+    const dLon = (lon - center.lon) * 60 * Math.cos(toRad(center.lat));
+    if (dLat * dLat + dLon * dLon > radiusNm * radiusNm) continue;
+    out.push({ hex: p.hex, category: p.category, flight: p.flight.padEnd(8), r: p.flight.startsWith('N') ? p.flight : `N${p.hex.slice(2)}AX`, t: p.t, alt_baro: p.alt, gs: p.gs, track: p.track, lat, lon, seen_pos: 0.4 });
+  }
+  return out;
+}
+
 function send(res, status, body, type = 'application/json') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
@@ -104,7 +145,10 @@ http
     let m = p.match(/^\/api\/aircraft\/(-?[\d.]+)\/(-?[\d.]+)\/([\d.]+)$/);
     if (m) {
       if (down) return send(res, 502, { error: 'simulated outage' });
-      const ac = empty ? [] : aircraft({ lat: Number(m[1]), lon: Number(m[2]) });
+      const center = { lat: Number(m[1]), lon: Number(m[2]) };
+      const radius = Math.min(250, Number(m[3]));
+      const near = aircraft(HOME).filter((a) => Math.hypot((a.lat - center.lat) * 60, (a.lon - center.lon) * 60 * Math.cos((center.lat * Math.PI) / 180)) <= radius);
+      const ac = empty ? [] : [...near, ...traffic(center, radius)];
       return send(res, 200, { ac, msg: 'No error', now: Date.now(), total: ac.length });
     }
     m = p.match(/^\/api\/airline\/(.+)$/);

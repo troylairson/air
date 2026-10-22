@@ -187,8 +187,10 @@ Goal: the display comes back by itself after a power cut, and changes take one c
    - Go to `http://<box-ip>:8090` and bookmark it.
    - **Full screen:** double-click the page or press `F` (`Esc` exits). The mouse pointer hides
      after 3 seconds without movement.
-   - **Zoom and pan:** scroll, pinch or use the +/− buttons to zoom, and drag to move the map. It
-     returns to the home view a minute after you stop (`map.recenterSeconds`).
+   - **Zoom and pan:** scroll, pinch or use the +/− buttons to zoom, and drag to move the map. All
+     traffic in view is shown, out to a view reaching 250 nm from its centre (the most FreeFlight
+     can answer for in one go); the map won't zoom out further. It returns to the home view a
+     minute after you stop (`map.recenterSeconds`).
    - **Pick a plane:** click any plane on the map to show it in the card, with its planned route.
      Click the map (or the same plane) to go back to the closest one; it also goes back by itself
      after `map.recenterSeconds`. This works in the map-only view too.
@@ -299,6 +301,14 @@ within a minute.
   straight-winged plane, small airliners (A2) a slightly smaller jet, heavies (A5) a bigger one.
   Aircraft without a category fall back to their type code (R44, EC35, B407 and similar are
   helicopters; C172, PA-28, SR22 and similar are light).
+- At the home view the page makes one request, for the home area. Once the map is zoomed or
+  panned past it, it also requests the circle around what's on screen (up to 250 nm). FreeFlight
+  rounds every request to a grid point and a fixed radius and caches it, so this adds about one
+  upstream request every 5 seconds, not more. Route and airline lookups stay limited to the card,
+  the list and a picked plane.
+- Planes near home (and a picked one) are full map markers with labels and trails. Everything else
+  is drawn on a single canvas, which stays smooth with well over 1,000 planes; those get labels
+  once you zoom in far enough and no trails. Click any plane to pick it.
 - The map is drawn by `web/map.js` with Leaflet. None of the data sources keep flight history, so
   each trail is built in the browser from the positions it receives every few seconds: it starts
   when an aircraft first comes within the fetch radius, and a page reload clears it. The dashed

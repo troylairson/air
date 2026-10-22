@@ -1,6 +1,6 @@
 import {
   parseFeed, filterAircraft, parseRoute, pickLeg, isPrivateFlight, modelName, airlineCode, parseAirline,
-  normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports,
+  normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports, distanceNm,
 } from './adapter.js';
 import { createMap } from './map.js';
 
@@ -44,6 +44,8 @@ const state = {
   airlines: new Map(), // ICAO code -> { name, retryAt }
   selected: null, // hex of the plane clicked on the map, shown in the card instead of the closest
   map: null, // see map.js; null when disabled
+  view: null, // { lat, lon, radiusNm } of the map when it shows more than the home area, else null
+  viewAircraft: [], // everything in that view (filtered like state.aircraft), for the map only
 };
 
 const $ = (id) => document.getElementById(id);
@@ -98,21 +100,24 @@ async function fetchJson(url) {
   }
 }
 
-function sourceUrl(template) {
+const homeArea = () => {
   const { home, radiusNm, fetchRadiusMultiplier } = state.config;
-  const radius = Math.ceil(radiusNm * fetchRadiusMultiplier);
+  return { lat: home.lat, lon: home.lon, radiusNm: radiusNm * fetchRadiusMultiplier };
+};
+
+function sourceUrl(template, area) {
   return template
-    .replace('{lat}', home.lat.toFixed(4))
-    .replace('{lon}', home.lon.toFixed(4))
-    .replace('{radius}', String(radius));
+    .replace('{lat}', area.lat.toFixed(4))
+    .replace('{lon}', area.lon.toFixed(4))
+    .replace('{radius}', String(Math.ceil(area.radiusNm)));
 }
 
 // Tries each source in order; the first one that answers wins.
-async function fetchAircraft() {
+async function fetchAircraft(area = homeArea(), templates = state.config.sources) {
   let lastError;
-  for (const template of state.config.sources) {
+  for (const template of templates) {
     try {
-      const { ok, status, json } = await fetchJson(sourceUrl(template));
+      const { ok, status, json } = await fetchJson(sourceUrl(template, area));
       if (!ok) throw new Error(`HTTP ${status}`);
       return parseFeed(json, state.config.home);
     } catch (err) {
@@ -225,16 +230,51 @@ async function refresh() {
     state.lastUpdate = new Date();
     state.stale = false;
     state.error = null;
-    if (state.selected && !state.aircraft.some((a) => a.hex === state.selected)) state.selected = null; // gone
-    const { hero, rest } = cardAircraft();
-    [hero, ...rest].forEach((a) => a && lookupFor(a));
   } catch (err) {
     state.stale = true;
     state.error = err.message || String(err);
   }
+  await fetchView();
+  if (state.selected && !findAircraft(state.selected)) state.selected = null; // gone
+  const { hero, rest } = cardAircraft();
+  [hero, ...rest].forEach((a) => a && lookupFor(a));
   render();
   setTimeout(refresh, state.config.refreshSeconds * 1000);
 }
+
+// ---- Wider map view: when the map is zoomed or panned past the home area, also fetch everything
+// in view (FreeFlight answers up to 250 nm around any point). Only area sources ({lat}/{lon}
+// templates) can do this; a receiver's aircraft.json is what it is.
+let viewRequest = 0;
+async function fetchView() {
+  const view = state.view;
+  const templates = state.config.sources.filter((t) => t.includes('{lat}'));
+  if (!view || !templates.length) return;
+  const id = ++viewRequest;
+  try {
+    const { altitudeFt } = state.config;
+    const list = filterAircraft(await fetchAircraft(view, templates), { minAltitudeFt: altitudeFt.min, maxAltitudeFt: altitudeFt.max });
+    if (id === viewRequest && state.view === view) state.viewAircraft = list; // ignore answers overtaken by a newer view
+  } catch {
+    // keep the last view's aircraft; the home area is what matters
+  }
+}
+
+function viewChanged(v) {
+  const home = homeArea();
+  const reach = distanceNm(home.lat, home.lon, v.lat, v.lon) + v.radiusNm;
+  if (v.atHome || reach <= home.radiusNm * 2) {
+    // back at (or near) the home view: the home fetch covers it
+    state.view = null;
+    state.viewAircraft = [];
+  } else {
+    // round, so small moves reuse nginx's and FreeFlight's caches
+    state.view = { lat: Math.round(v.lat * 20) / 20, lon: Math.round(v.lon * 20) / 20, radiusNm: Math.min(250, Math.ceil(v.radiusNm / 5) * 5 + 5) };
+    fetchView().then(render);
+  }
+}
+
+const findAircraft = (hex) => state.aircraft?.find((a) => a.hex === hex) ?? state.viewAircraft.find((a) => a.hex === hex);
 
 // Card = the plane clicked on the map, else the closest one inside the display radius;
 // list = the next ones inside the wider fetch radius.
@@ -242,7 +282,7 @@ function cardAircraft() {
   if (!state.aircraft) return { hero: null, rest: [] };
   const { radiusNm, fetchRadiusMultiplier, listCount } = state.config;
   const wide = state.aircraft.filter((a) => a.distanceNm <= radiusNm * fetchRadiusMultiplier);
-  const picked = state.selected && state.aircraft.find((a) => a.hex === state.selected);
+  const picked = state.selected && findAircraft(state.selected);
   const hero = picked || (wide[0] && wide[0].distanceNm <= radiusNm ? wide[0] : null);
   return { hero, rest: wide.filter((a) => a !== hero).slice(0, listCount) };
 }
@@ -257,7 +297,7 @@ function selectPlane(hex) {
   if (state.selected && recenterSeconds > 0) {
     selectTimer = setTimeout(() => selectPlane(null), recenterSeconds * 1000);
   }
-  const picked = state.aircraft?.find((a) => a.hex === state.selected);
+  const picked = state.selected && findAircraft(state.selected);
   if (picked) lookupFor(picked);
   render();
 }
@@ -362,17 +402,22 @@ function render() {
 }
 
 // Short name under each plane on the map.
-function mapLabel(a) {
-  if (isPrivateFlight(a)) return esc(a.registration);
-  return esc(routeFor(a)?.flightNumber || a.callsign || a.registration || a.hex.toUpperCase());
+function plainLabel(a) {
+  if (isPrivateFlight(a)) return a.registration;
+  return routeFor(a)?.flightNumber || a.callsign || a.registration || a.hex.toUpperCase();
 }
+const mapLabel = (a) => esc(plainLabel(a));
 
+// Markers (labels, trails) for the home area and the picked plane; the canvas for everything else.
 function updateMap(heroAc) {
   if (!state.map) return;
   const { radiusNm, fetchRadiusMultiplier } = state.config;
-  const wide = state.aircraft.filter((a) => a.distanceNm <= radiusNm * fetchRadiusMultiplier);
+  const featured = state.aircraft.filter((a) => a.distanceNm <= radiusNm * fetchRadiusMultiplier);
+  if (heroAc && !featured.includes(heroAc)) featured.push(heroAc);
+  const shown = new Set(featured.map((a) => a.hex));
+  state.map.updateBulk(state.viewAircraft.filter((a) => !shown.has(a.hex)), plainLabel);
   const heroRoute = heroAc && !isPrivateFlight(heroAc) ? legFor(heroAc) : null;
-  state.map.update(wide, heroAc, mapLabel, heroRoute);
+  state.map.update(featured, heroAc, mapLabel, heroRoute);
 }
 
 // Frames the map in the part of the screen the cards don't cover.
@@ -396,7 +441,7 @@ function fitMap() {
 function setupMap() {
   if (!state.config.map.enabled || typeof L === 'undefined') return; // map off, or Leaflet failed to load
   document.body.classList.add('with-map');
-  state.map = createMap($('map'), state.config, { onSelect: selectPlane });
+  state.map = createMap($('map'), state.config, { onSelect: selectPlane, onViewChange: viewChanged });
   setCardsHidden(readSetting('cardsHidden') === '1');
   $('cards-toggle').addEventListener('click', () => setCardsHidden(!document.body.classList.contains('cards-hidden')));
   window.addEventListener('keydown', (e) => {
