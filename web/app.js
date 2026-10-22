@@ -25,6 +25,7 @@ const DEFAULTS = {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     darkTiles: true,
     tileBrightness: 0.9, // with darkTiles: higher is a lighter map
+    planeColor: '#ffd23f', // gold: a hue the map itself never uses
     viewRadiusNm: 4, // how far from home the map shows at rest
     recenterSeconds: 60, // after you drag or zoom, return to the home view this long after
     trailMinutes: 15,

@@ -14,6 +14,7 @@ const MAX_PREDICT_S = 20; // stop moving a plane forward when its data is this o
 const CORRECT_MS = 1500; // when fresh data disagrees with the prediction, ease into it over this long
 const FRAME_MS = 50; // move planes at most 20 times a second
 const MAX_VIEW_RADIUS_NM = 250; // FreeFlight's largest area query; the map can't zoom out past it
+const MARKER_LABEL_ZOOM = 10; // below this, home-area markers (packed within a few nm) keep only the hero's label
 const BULK_LABEL_ZOOM = 9; // canvas planes get labels from this zoom in...
 const BULK_LABEL_MAX = 150; // ...and only while this few are on screen
 const HIT_PX = 14; // a click this close to a canvas plane picks it
@@ -64,6 +65,7 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   L.tileLayer(opts.tileUrl, { attribution: opts.attribution, subdomains: 'abcd', maxZoom: 19 }).addTo(map);
   element.classList.toggle('dark-tiles', Boolean(opts.darkTiles));
   element.style.setProperty('--tile-brightness', String(opts.tileBrightness));
+  element.style.setProperty('--plane-color', opts.planeColor);
 
   L.circle([home.lat, home.lon], {
     radius: radiusNm * NM_TO_M,
@@ -108,7 +110,7 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   }
   map.on('moveend', () => onViewChange?.(view()));
   // Zoomed far out, the home-area markers sit on top of each other: keep only the hero's label.
-  const labelZoom = () => element.classList.toggle('few-labels', map.getZoom() < BULK_LABEL_ZOOM);
+  const labelZoom = () => element.classList.toggle('few-labels', map.getZoom() < MARKER_LABEL_ZOOM);
   map.on('zoomend', labelZoom);
 
   // Zooming out stops where the view's corners would be MAX_VIEW_RADIUS_NM from its centre.
@@ -235,9 +237,10 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
       onScreen.push([hex, b, pt]);
     }
     const labels = map.getZoom() >= BULK_LABEL_ZOOM && onScreen.length <= BULK_LABEL_MAX;
-    ctx.fillStyle = 'rgba(178, 192, 210, 0.85)';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-    ctx.shadowBlur = 2;
+    ctx.fillStyle = opts.planeColor;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)'; // same dark outline as the markers
+    ctx.lineWidth = 1.4;
+    ctx.lineJoin = 'round';
     for (const [hex, b, pt] of onScreen) {
       const scale = (BULK_PX / 24) * (BULK_SCALE[b.size] ?? 1);
       ctx.save();
@@ -245,7 +248,9 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
       ctx.rotate(((b.base.track ?? 0) * Math.PI) / 180);
       ctx.scale(scale, scale);
       ctx.translate(-12, -12);
-      ctx.fill(BULK_SHAPES[b.size] ?? BULK_SHAPES.large);
+      const shape = BULK_SHAPES[b.size] ?? BULK_SHAPES.large;
+      ctx.stroke(shape);
+      ctx.fill(shape);
       if (b.size === 'heli') {
         ctx.translate(...ROTOR_CENTER);
         ctx.rotate((now / 600) * 2 * Math.PI); // same speed as the markers' CSS rotor
@@ -258,6 +263,8 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
     if (labels) {
       ctx.font = '600 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
       ctx.textAlign = 'center';
+      ctx.fillStyle = '#eef1f5';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
       ctx.shadowBlur = 3;
       for (const [, b, pt] of onScreen) ctx.fillText(b.label, pt.x, pt.y + 20);
     }
