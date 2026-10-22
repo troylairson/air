@@ -8,47 +8,85 @@ aircraft type, altitude, speed and distance. It runs as two Docker containers on
 | `freeflight` | [FreeFlight](https://github.com/Ethos6/free-flight-api): merges adsb.lol, airplanes.live and adsb.fi and caches their responses. Not published on any port. |
 | `nginx` | Serves the display page on the LAN (port 8090) and proxies FreeFlight and the [adsbdb](https://www.adsbdb.com/) route lookup, so the browser only talks to one origin. |
 
-The screen is a web browser on any computer on the LAN, open full screen at `http://<box>:8090`.
+The screen is a web browser on any computer on the LAN, open full screen at `http://<box-ip>:8090`.
 A dedicated screen (old tablet, Raspberry Pi) can come later.
 
-**You run every SSH command.** Nothing in this repo connects to the box by itself. Each step
-below lists the commands to run from your own machine; `deploy.sh` is a convenience that runs
-the copy and `docker compose up` for you, also over your SSH login.
+**Everything runs on the box.** Log in with `ssh <user>@<box-ip>` and your ZimaOS password, and
+run the commands below in that session. The project lives in `/DATA/AppData/overhead` as a git
+clone of this repo, and `./start.sh` starts it.
 
 ## Repo layout
 
 ```
+start.sh                  start or restart the display (run on the box)
 docker-compose.yml        freeflight + nginx, pinned versions, restart: unless-stopped
 docker-compose.debug.yml  testing only: FreeFlight on the box's 127.0.0.1:8000
 nginx.conf                static page + /api/aircraft/ and /api/route/ proxies
 web/                      the display: index.html, style.css, app.js, adapter.js
 config.example.json       copy to config.json (gitignored: holds your home location)
 .env.example              copy to .env (gitignored): display port + FreeFlight settings
-deploy.sh                 copy files to the box and (re)start the containers
-dev/server.mjs            local preview with fake aircraft
+dev/server.mjs            local preview with fake aircraft (on a laptop, optional)
 test/                     adapter unit tests
 ```
 
-## Try it locally first
+## Phase 0: log in and look around
 
-Needs Node 18 or newer. No Docker, no network, no box.
+Goal: you're logged in to the box and know it has what the display needs.
+
+1. If SSH is off, turn it on in the ZimaOS web UI settings.
+2. From any computer on your network, log in:
+
+   ```sh
+   ssh <user>@<box-ip>
+   ```
+
+   The box IP is the address you use for the ZimaOS web page, e.g. `192.168.1.50`. The first time,
+   answer `yes` to "Are you sure you want to continue connecting?", then enter your ZimaOS
+   password. Type `exit` when you're done.
+3. Look around. These only read information:
+
+   ```sh
+   cat /etc/os-release | head -3
+   docker ps
+   docker compose version
+   which git
+   df -h /DATA
+   ss -ltn | grep 8090
+   ```
+
+   What you want to see:
+   - `docker ps` lists containers (or an empty table). If it says "permission denied", put
+     `sudo` before every `docker` command in this README. `./start.sh` handles this by itself.
+   - `docker compose version` prints v2.something.
+   - `which git` prints a path. If it prints nothing, see "No git on the box" below.
+   - `df` shows at least 1 GB free.
+   - The last command prints nothing, meaning port 8090 is free. If it prints a line, pick another
+     port for `DISPLAY_PORT` in `.env` later.
+
+## First-time setup (on the box)
 
 ```sh
-npm test          # adapter unit tests
-npm run dev       # http://localhost:8090 with fake aircraft
-curl localhost:8090/__dev/down    # toggle a simulated outage: the page shows "Stale"
-curl localhost:8090/__dev/empty   # toggle an empty sky: "Clear skies overhead"
+sudo mkdir -p /DATA/AppData/overhead
+sudo chown $USER /DATA/AppData/overhead
+git clone https://github.com/troylairson/air.git /DATA/AppData/overhead
+cd /DATA/AppData/overhead
+cp config.example.json config.json
+cp .env.example .env
+nano config.json        # set home.lat / home.lon (below); Ctrl+O, Enter, Ctrl+X saves and exits
 ```
 
-## First-time setup (local)
+If the repo is private, `git clone` asks for a login: your GitHub username, and a
+[personal access token](https://github.com/settings/tokens) as the password.
 
-```sh
-cp config.example.json config.json   # then set home.lat / home.lon (below)
-cp .env.example .env                 # change DISPLAY_PORT if 8090 is taken
-```
-
-Never commit `config.json` or `.env`; both are gitignored. `deploy.sh` warns if `config.json`
+Never commit `config.json` or `.env`; both are gitignored. `./start.sh` warns if `config.json`
 still has the example location.
+
+**No git on the box?** Copy the files from a computer that has the repo instead. Run this there,
+inside the repo folder, after creating `config.json` and `.env`:
+
+```sh
+scp -r start.sh docker-compose.yml docker-compose.debug.yml .env nginx.conf config.json config.example.json web <user>@<box-ip>:/DATA/AppData/overhead/
+```
 
 ### Find your latitude and longitude
 
@@ -75,98 +113,35 @@ display needs decimal degrees.
 To check: open `https://www.google.com/maps?q=<lat>,<lon>` with your numbers. The pin should land
 on your house.
 
-## Phase 0: connect and inspect the box
-
-Goal: passwordless SSH as `ssh zima`, and you know what is already running.
-
-1. Enable SSH in the ZimaOS web UI if it is off.
-2. Create a key if you have none, and copy it to the box:
-
-   ```sh
-   ssh-keygen -t ed25519
-   ssh-copy-id <user>@<box-ip-or-hostname>
-   ```
-
-3. Add an alias to `~/.ssh/config`:
-
-   ```
-   Host zima
-       HostName <box-ip-or-hostname>
-       User <user>
-   ```
-
-   Test it: `ssh zima 'echo ok'`
-4. Inspect the box (read-only):
-
-   ```sh
-   ssh zima 'uname -a; cat /etc/os-release'
-   ssh zima 'docker version; docker compose version'
-   ssh zima 'docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}"'
-   ssh zima 'df -h /DATA; ls /DATA/AppData'
-   ssh zima 'ss -ltn'
-   ```
-
-   Look for: `docker compose` (v2) works, there is free disk space, and nothing is listening on
-   `:8090`. If the docker commands say "permission denied", see the next section. If 8090 is taken, set another `DISPLAY_PORT` in `.env`.
-
-**Check:** `ssh zima 'docker ps'` runs without a password prompt.
-
-## If docker needs sudo on the box
-
-Check once:
-
-```sh
-ssh zima 'docker ps'
-```
-
-If that prints a "permission denied" error, your ZimaOS user isn't allowed to run docker directly.
-
-- **`deploy.sh` handles it:** it checks on each run and uses sudo when needed, asking for your
-  ZimaOS password once. Force it with `SUDO=1 ./deploy.sh` or turn it off with `SUDO=0`.
-- **Commands you type yourself:** put `sudo` before `docker` and add `-t` to `ssh` so sudo can
-  ask for your password, e.g. `ssh -t zima 'sudo docker ps'`. The same goes for every
-  `ssh zima '… docker …'` command in this README.
-- With sudo, the files in `/DATA/AppData/overhead` are owned by root. That's fine: `deploy.sh`
-  always copies them in with sudo.
-
-## Phase 1: deploy FreeFlight
+## Phase 1: start FreeFlight
 
 Goal: FreeFlight runs on the box and returns aircraft for your location.
 
 ```sh
-DEBUG=1 ./deploy.sh
+cd /DATA/AppData/overhead
+DEBUG=1 ./start.sh
 ```
 
-`DEBUG=1` adds `docker-compose.debug.yml`, which publishes FreeFlight on the box's loopback
-(`127.0.0.1:8000`) so the checks below work. It is never reachable from the LAN. This also starts
-nginx; that's fine, Phase 2 checks it.
+The first run downloads the two images, which takes a minute or two. `DEBUG=1` also publishes
+FreeFlight on the box's own `127.0.0.1:8000` so the checks below work. It is never reachable from
+the rest of the network.
 
-<details>
-<summary>Same thing without deploy.sh</summary>
+If `./start.sh` says "Permission denied", run `chmod +x start.sh` once (or use `bash start.sh`).
 
-```sh
-ssh zima 'mkdir -p /DATA/AppData/overhead'
-scp -r docker-compose.yml docker-compose.debug.yml .env nginx.conf config.json web zima:/DATA/AppData/overhead/
-ssh zima 'cd /DATA/AppData/overhead && docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d freeflight'
-```
-
-</details>
-
-**Checks** (replace `<lat>`/`<lon>` with your home location):
+**Checks** (replace `LAT` and `LON` with your numbers):
 
 ```sh
-ssh zima 'curl -s localhost:8000/v1/providers'                 # adsb.lol, airplanes.live, adsb.fi healthy
-ssh zima 'docker exec overhead-freeflight-1 freeflight check'  # skip if the CLI is not in the image
-ssh zima 'curl -s "localhost:8000/v2/point/<lat>/<lon>/10"'    # an "ac" array with aircraft in it
-ssh zima 'curl -s localhost:8000/v1/route/<a callsign from the previous result>'   # origin + destination
+curl -s localhost:8000/v1/providers                 # adsb.lol, airplanes.live, adsb.fi healthy
+docker exec overhead-freeflight-1 freeflight check  # skip if the command isn't found
+curl -s "localhost:8000/v2/point/LAT/LON/10"        # an "ac" list with aircraft in it
+curl -s localhost:8000/v1/route/CALLSIGN            # a callsign from the previous result: origin + destination
 ```
 
 ## Phase 2: the display
 
 Goal: one page that answers "what is flying over the house right now?" from across the room.
 
-The containers from Phase 1 already serve it. Open `http://<box>:8090` on a laptop on the same
-network.
+It's already running. Open `http://<box-ip>:8090` in a browser on any computer on your network.
 
 **Checks**
 
@@ -176,48 +151,50 @@ network.
    update …"), then recovers on its own:
 
    ```sh
-   ssh zima 'docker stop overhead-freeflight-1'    # wait ~10 s, look at the screen
-   ssh zima 'docker start overhead-freeflight-1'
+   docker stop overhead-freeflight-1     # wait ~10 s, look at the page
+   docker start overhead-freeflight-1
    ```
 
 3. A flight with no known route still shows cleanly ("Route unknown").
-4. Remove the debug port by redeploying without `DEBUG=1`:
+4. Turn off the test port by starting again without `DEBUG=1`:
 
    ```sh
-   ./deploy.sh
-   ssh zima 'ss -ltn | grep 8000'    # should print nothing
+   ./start.sh
+   ss -ltn | grep 8000    # should print nothing
    ```
 
 ## Phase 3: always on
 
-Goal: one command redeploys everything, and the screen comes back by itself after a power cut.
+Goal: the display comes back by itself after a power cut, and changes take one command.
 
-1. `./deploy.sh` is safe to re-run. Use it for every change, including `config.json` edits. The
-   page checks for changes every minute and reloads itself, so you don't need to touch the screen.
-2. Both containers use `restart: unless-stopped`. Confirm, then reboot the box once when it suits you:
+1. **Changes:** after editing `config.json` or `.env`, or after `git pull`, run `./start.sh`.
+   The page checks for changes every minute and reloads itself, so you don't need to touch the
+   screen.
+2. **Reboots:** both containers restart by themselves. Confirm, then reboot the box once when it
+   suits you:
 
    ```sh
-   ssh zima 'docker inspect -f "{{.Name}} {{.HostConfig.RestartPolicy.Name}}" overhead-freeflight-1 overhead-nginx-1'
-   ssh zima 'sudo reboot'
+   docker inspect -f "{{.Name}} {{.HostConfig.RestartPolicy.Name}}" overhead-freeflight-1 overhead-nginx-1
+   sudo reboot
    ```
 
-3. Open the display in a web browser on any computer on the LAN:
-   - Go to `http://<box>:8090` and bookmark it.
+   Both lines of the first command should end in `unless-stopped`.
+3. **The screen:** open the display in a web browser on any computer on the LAN.
+   - Go to `http://<box-ip>:8090` and bookmark it.
    - **Full screen:** double-click the page or press `F` (`Esc` exits). The mouse pointer hides
      after 3 seconds without movement.
-   - **Keep it awake:** browsers only allow the page to keep the screen on over HTTPS, so set the
+   - **Keep it awake:** browsers only let a page keep the screen on over HTTPS, so set the
      computer's own display sleep to "never" while it's showing the page.
    - **Open straight into full screen** (optional), as an app window with no browser bars:
 
      ```sh
      # Chrome or Edge; on macOS use "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-     google-chrome --kiosk http://<box>:8090      # Alt+F4 (Cmd+Q on macOS) closes it
+     google-chrome --kiosk http://<box-ip>:8090      # Alt+F4 (Cmd+Q on macOS) closes it
      ```
 
    Later, a dedicated screen works the same way: an old tablet with a kiosk browser app set to
    start on boot, or a Raspberry Pi with Chromium in `--kiosk` mode and screen blanking off.
-4. Give the box a DHCP reservation on your router, or use its `.local` name, so the URL never
-   changes.
+4. Give the box a DHCP reservation on your router, so its IP and the display's URL never change.
 
 **Check:** after a reboot of the box, the open browser tab shows live aircraft again within
 2 minutes with no one touching it. While the box is down the page shows "Stale"; it never needs
@@ -231,7 +208,7 @@ after Phases 1 to 3 have run well for a while.
 Hardware: an RTL-SDR USB dongle for 1090 MHz ADS-B, plus a 1090 MHz antenna placed as high as
 possible.
 
-1. Plug the dongle into the box and check it is seen: `ssh zima 'lsusb'`.
+1. Plug the dongle into the box and check it is seen: `lsusb`.
 2. The Linux TV-tuner driver (`dvb_usb_rtl28xxu`) usually grabs the dongle and has to be
    blacklisted. ZimaOS may not allow changes in `/etc/modprobe.d`, or may undo them on update. Find
    out what ZimaOS supports before changing anything. If it can't be done cleanly, run the receiver
@@ -248,7 +225,7 @@ possible.
    ```
 
    The display tries the sources in order. The adapter already reads readsb's `aircraft.json`.
-6. `./deploy.sh`
+6. `./start.sh`
 
 **Check:** the display keeps working with FreeFlight stopped, and with the dongle unplugged.
 
@@ -270,7 +247,7 @@ possible.
 | `clock24h` | `true` | 24-hour clock |
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
 
-To change the location or radius: edit `config.json`, run `./deploy.sh`, and the screen reloads
+To change the location or radius: `nano config.json`, then `./start.sh`. The screen reloads
 within a minute.
 
 ## How it works
@@ -282,19 +259,41 @@ within a minute.
   "unknown" answers. A flight with no route still shows; the display never guesses one.
 - If a fetch fails, the page keeps the last data and marks it stale. It never goes blank.
 
+## Updating
+
+```sh
+cd /DATA/AppData/overhead
+git pull
+./start.sh
+```
+
+Your `config.json` and `.env` aren't in git, so `git pull` never touches them.
+
 ## Upkeep
 
 - Every few months, check for new [FreeFlight](https://github.com/Ethos6/free-flight-api/releases)
   and [nginx](https://hub.docker.com/_/nginx) releases (and ultrafeeder if used), bump the pinned
-  tags in `docker-compose.yml`, and run `./deploy.sh`.
+  tags in `docker-compose.yml`, and run `./start.sh`.
 - Don't add auto-updaters such as Watchtower; an untested update could quietly break the screen.
-- Logs: `ssh zima 'cd /DATA/AppData/overhead && docker compose logs --tail 50'`
+- Logs: `docker compose logs --tail 50` (in `/DATA/AppData/overhead`)
 
 ## Troubleshooting
 
 | Symptom | Look at |
 | --- | --- |
-| "Waiting for data" or a stale marker that stays | `ssh zima 'docker logs --tail 50 overhead-freeflight-1'`, then the Phase 1 checks with `DEBUG=1 ./deploy.sh` |
-| Every flight says "Route unknown" | `ssh zima 'docker exec overhead-nginx-1 wget -qO- http://127.0.0.1/api/route/BAW1'`. If it fails, the box can't reach api.adsbdb.com. |
-| "Config error" on screen | `config.json` is missing or invalid; `deploy.sh` checks it before copying |
-| Page doesn't load | `ssh zima 'docker ps'` and `ss -ltn` for the display port |
+| "Waiting for data" or a stale marker that stays | `docker logs --tail 50 overhead-freeflight-1`, then the Phase 1 checks with `DEBUG=1 ./start.sh` |
+| Every flight says "Route unknown" | `docker exec overhead-nginx-1 wget -qO- http://127.0.0.1/api/route/BAW1`. If it fails, the box can't reach api.adsbdb.com. |
+| "Config error" on screen | `config.json` is missing or invalid; `./start.sh` checks it when `python3` is on the box |
+| Page doesn't load | `docker ps` should list both containers; `ss -ltn \| grep 8090` should show the port |
+| `docker` says "permission denied" | Put `sudo` in front, e.g. `sudo docker ps` |
+
+## Preview on a laptop (optional)
+
+Needs Node 18 or newer. No Docker, no network, no box.
+
+```sh
+npm test          # adapter unit tests
+npm run dev       # http://localhost:8090 with fake aircraft
+curl localhost:8090/__dev/down    # toggle a simulated outage: the page shows "Stale"
+curl localhost:8090/__dev/empty   # toggle an empty sky: "Clear skies overhead"
+```
