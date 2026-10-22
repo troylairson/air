@@ -55,14 +55,36 @@ export function normalizeRecord(rec, home) {
   };
 }
 
-// Whole feed -> display aircraft, sorted by distance from home.
-export function parseFeed(json, home) {
+// When the feed was generated, in ms: v2 sends `now` in ms, readsb in seconds. A cached answer
+// keeps its original `now`, so this is when the positions were current, not when they arrived.
+// Falls back to receivedAt if `now` is missing or the clocks disagree by more than a minute.
+export function feedTime(json, receivedAt) {
+  let now = num(json?.now);
+  if (now !== null && now < 1e11) now *= 1000;
+  return now !== null && Math.abs(now - receivedAt) < 60_000 ? now : receivedAt;
+}
+
+// Whole feed -> display aircraft, sorted by distance from home. Each one gets positionTime:
+// when its lat/lon were true (feed time minus the position's age).
+export function parseFeed(json, home, receivedAt = Date.now()) {
   const records = Array.isArray(json?.ac) ? json.ac : Array.isArray(json?.aircraft) ? json.aircraft : null;
   if (!records) throw new Error('Feed has neither ac[] nor aircraft[]');
+  const generated = feedTime(json, receivedAt);
   return records
     .map((r) => normalizeRecord(r, home))
     .filter(Boolean)
+    .map((a) => ({ ...a, positionTime: generated - (a.seenPosS ?? 0) * 1000 }))
     .sort((a, b) => a.distanceNm - b.distanceNm);
+}
+
+// Where an aircraft will be after `seconds` at its speed and track. A flat-earth step is
+// accurate to metres over the few seconds this is used for.
+export function projectPosition(lat, lon, trackDeg, speedKt, seconds) {
+  const nm = (speedKt * seconds) / 3600;
+  return [
+    lat + (nm / 60) * Math.cos(toRad(trackDeg)),
+    lon + ((nm / 60) * Math.sin(toRad(trackDeg))) / Math.cos(toRad(lat)),
+  ];
 }
 
 // Keeps airborne aircraft inside the altitude band with a fresh position.

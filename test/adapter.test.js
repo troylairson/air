@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -108,4 +108,25 @@ test('route keeps airport coordinates for the map', () => {
   } } });
   assert.equal(r.origin.lat, 40.6413);
   assert.equal(r.destination.lon, -0.4543);
+});
+
+test('feed time: v2 ms, readsb seconds, and a fallback for missing or skewed clocks', () => {
+  const t = 1_800_000_000_000;
+  assert.equal(feedTime({ now: t - 4000 }, t), t - 4000);
+  assert.equal(feedTime({ now: (t - 2000) / 1000 }, t), t - 2000);
+  assert.equal(feedTime({}, t), t);
+  assert.equal(feedTime({ now: t - 5 * 60_000 }, t), t);
+});
+
+test('positionTime subtracts the position age from the feed time', () => {
+  const t = 1_800_000_000_000;
+  const [a] = parseFeed({ now: t - 3000, ac: [{ hex: 'a', lat: 51.47, lon: -0.45, alt_baro: 3000, seen_pos: 1.5 }] }, home, t);
+  assert.equal(a.positionTime, t - 4500);
+});
+
+test('project position: 360 kt for 10 s is 1 nm', () => {
+  const [lat, lon] = projectPosition(51, 0, 0, 360, 10); // due north
+  assert.ok(Math.abs(distanceNm(51, 0, lat, lon) - 1) < 0.001 && lon === 0);
+  const [lat2, lon2] = projectPosition(51, 0, 90, 360, 10); // due east
+  assert.ok(Math.abs(distanceNm(51, 0, lat2, lon2) - 1) < 0.001 && Math.abs(lat2 - 51) < 1e-9);
 });

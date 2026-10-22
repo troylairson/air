@@ -273,9 +273,12 @@ function fitMap() {
   const panel = document.querySelector('main').getBoundingClientRect();
   const gap = 24;
   const portrait = window.innerHeight > window.innerWidth;
+  const cardsHidden = document.body.classList.contains('cards-hidden');
   state.map.invalidate();
   state.map.fit(
-    portrait
+    cardsHidden
+      ? { topLeft: [gap, header.bottom + gap], bottomRight: [gap, gap] }
+      : portrait
       ? { topLeft: [gap, header.bottom + gap], bottomRight: [gap, window.innerHeight * 0.52 + gap] }
       : { topLeft: [panel.right + gap, header.bottom + gap], bottomRight: [gap, gap] },
   );
@@ -285,12 +288,43 @@ function setupMap() {
   if (!state.config.map.enabled || typeof L === 'undefined') return; // map off, or Leaflet failed to load
   document.body.classList.add('with-map');
   state.map = createMap($('map'), state.config);
-  fitMap();
+  setCardsHidden(readSetting('cardsHidden') === '1');
+  $('cards-toggle').addEventListener('click', () => setCardsHidden(!document.body.classList.contains('cards-hidden')));
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'c' || e.key === 'C') setCardsHidden(!document.body.classList.contains('cards-hidden'));
+  });
   let timer;
   window.addEventListener('resize', () => {
     clearTimeout(timer);
     timer = setTimeout(fitMap, 200);
   });
+}
+
+// Map-only view: hides the card and list (button or the C key), remembered in this browser.
+function setCardsHidden(hidden) {
+  document.body.classList.toggle('cards-hidden', hidden);
+  const button = $('cards-toggle');
+  button.textContent = hidden ? 'Show info' : 'Map only';
+  button.setAttribute('aria-pressed', String(hidden));
+  writeSetting('cardsHidden', hidden ? '1' : '0');
+  fitMap();
+}
+
+// Per-browser preferences; storage can be unavailable (private windows), so never rely on it.
+function readSetting(key) {
+  try {
+    return localStorage.getItem(`overhead.${key}`);
+  } catch {
+    return null;
+  }
+}
+
+function writeSetting(key, value) {
+  try {
+    localStorage.setItem(`overhead.${key}`, value);
+  } catch {
+    // not saved; the toggle still works for this visit
+  }
 }
 
 // Drops list rows that would be cut off at the bottom of the screen.

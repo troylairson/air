@@ -182,6 +182,26 @@ body.with-map .list li:last-child { border-bottom: none; }
   body.with-map main { width: 100%; margin-top: auto; max-height: 52vh; }
 }
 
+/* Map-only toggle: shown with the mouse pointer, bottom left */
+.cards-toggle { display: none; }
+body.with-map .cards-toggle {
+  display: block;
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 1001;
+  padding: 0.45rem 0.9rem;
+  font: 600 0.8rem/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: rgba(13, 20, 31, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: opacity 0.5s;
+}
+body.with-map.idle-cursor .cards-toggle { opacity: 0; pointer-events: none; }
+body.cards-hidden main { display: none; }
+
 /* Map layers */
 .map-radius {
   stroke: var(--accent);
@@ -199,8 +219,7 @@ body.with-map .list li:last-child { border-bottom: none; }
   box-shadow: 0 0 0 4px rgba(255, 181, 71, 0.25);
 }
 
-.leaflet-marker-icon.map-plane { transition: transform 1s linear, opacity 1s; }
-.no-glide .leaflet-marker-icon.map-plane { transition: none; }
+.leaflet-marker-icon.map-plane { transition: opacity 1s; } /* position is animated in map.js */
 .map-plane-body { width: 32px; height: 32px; transition: transform 1s; }
 .map-plane-body svg { width: 100%; height: 100%; fill: #c9d4e2; filter: drop-shadow(0 1px 2px #000); }
 .map-plane.is-hero .map-plane-body svg { fill: var(--accent); transform: scale(1.35); }
