@@ -152,7 +152,7 @@ test('size class from emitter category, else type code', () => {
   assert.equal(sizeClass({ category: 'A2', type: 'E135' }), 'small');
   assert.equal(sizeClass({ category: 'A3', type: 'BCS3' }), 'large');
   assert.equal(sizeClass({ category: 'A5', type: 'B77W' }), 'heavy');
-  assert.equal(sizeClass({ category: 'A7', type: 'EC35' }), 'light');
+  assert.equal(sizeClass({ category: 'A7', type: 'EC35' }), 'heli');
   assert.equal(sizeClass({ category: null, type: 'C172' }), 'light');
   assert.equal(sizeClass({ category: null, type: 'P28A' }), 'light');
   assert.equal(sizeClass({ category: null, type: 'A320' }), 'large');
@@ -230,4 +230,16 @@ test('pickLeg: next to an airport a route both reaches and leaves, the heading d
   assert.equal(pickLeg({ airports: [JFK, CVG, JFK] }, arrivingJfk).destination.code, 'JFK');
   const climbingOut = { lat: 39.2, lon: -84.5, track: 200 }; // just after take-off from CVG, still turning
   assert.equal(pickLeg({ airports: [CVG, JFK] }, climbingOut).destination.code, 'JFK');
+});
+
+test('helicopters: category A7, else type code or description', () => {
+  assert.equal(sizeClass({ category: 'A7', type: null }), 'heli');
+  assert.equal(sizeClass({ category: null, type: 'R44' }), 'heli');
+  assert.equal(sizeClass({ category: null, type: 'EC35' }), 'heli');
+  assert.equal(sizeClass({ category: null, type: 'B407' }), 'heli');
+  assert.equal(sizeClass({ category: null, type: 'A139' }), 'heli');
+  assert.equal(sizeClass({ category: null, type: 'XXXX', description: 'EUROCOPTER EC-145' }), 'heli');
+  assert.equal(sizeClass({ category: null, type: 'A320' }), 'large'); // A3xx airliners aren't A1x9 helicopters
+  assert.equal(sizeClass({ category: null, type: 'C172' }), 'light');
+  assert.equal(sizeClass({ category: 'A3', type: 'EC35' }), 'large'); // a broadcast category wins
 });

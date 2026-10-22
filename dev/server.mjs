@@ -23,6 +23,8 @@ const FLIGHTS = [
   { hex: '43c6f2', cat: 'A5', flight: null, r: 'ZZ336', t: 'A332', alt: 18000, gs: 380, rate: 0, d: 5.4 },
   { hex: '485f33', cat: 'A3', flight: 'AAL2401 ', r: 'N953UW', t: 'E190', alt: 9000, gs: 280, rate: -1200, d: 5.9 }, // airline known, route not
   { hex: 'a6e7ba', flight: 'N544KS  ', r: 'N544KS', t: 'C172', alt: 2300, gs: 92, rate: 0, d: 2.9 }, // no category: size from type
+  { hex: 'a1b2c3', cat: 'A7', flight: 'N911LF  ', r: 'N911LF', t: 'EC35', desc: 'EUROCOPTER EC-135', alt: 1200, gs: 120, rate: 0, d: 2.0 },
+  { hex: 'a4d5e6', flight: 'N44RH   ', r: 'N44RH', t: 'R44', alt: 900, gs: 85, rate: 0, d: 3.3 }, // no category: helicopter from type
   { hex: 'a3a172', cat: 'A1', flight: 'N333FA  ', r: 'N333FA', t: 'P28A', desc: 'PIPER PA-28-140/150/160/180', alt: 1800, gs: 93, rate: 0, d: 1.4 },
   { hex: '000001', cat: 'A3', flight: 'GND1    ', t: 'A320', alt: 'ground', gs: 10, d: 0.3 },
 ];

@@ -304,14 +304,23 @@ export function parseAirline(json, icao) {
 // Mooney, Vans RV, Grumman AA-5, Robin, Tecnam.
 const LIGHT_TYPES = /^(C1\d\d|C2[01]\d|P28|P32|PA\d|SR2|DA\d|BE3\d|BE5\d|BE9|M20|RV\d|AA5|DR4|P92|P2008)/;
 
-// Rough size for the map symbol, from the ADS-B emitter category (A1 light, A2 small, A3/A4 large,
-// A5 heavy, A7 rotorcraft, B1 glider, B4 ultralight), else from the type code.
+// Common helicopter type codes, for helicopters that don't broadcast category A7: Airbus/Eurocopter
+// (EC.., AS.., H160, BK17), Leonardo/Agusta (A109, A119, A139, A169, A189), Bell (B06, B407, B412,
+// B429, B505), Robinson (R22/R44/R66), Sikorsky (S76, S92, H60), MD (H500, EXPL), Enstrom, Schweizer.
+const HELI_TYPES = /^(EC\d\d|AS\d\d|H160|BK17|A1[0-8]9|B06|B06T|B407|B412|B427|B429|B430|B505|R22|R44|R66|S76|S92|S61|H60|H64|H47|H500|EXPL|EN28|EN48|S300|S330|NH90)$/;
+
+// Map symbol class: 'heli', 'light', 'small', 'large' or 'heavy', from the ADS-B emitter category
+// (A7 rotorcraft, A1 light, B1 glider, B4 ultralight, A2 small, A3/A4 large, A5 heavy), else from
+// the type code or description.
 export function sizeClass(a) {
   switch (a.category) {
-    case 'A1': case 'A7': case 'B1': case 'B4': return 'light';
+    case 'A7': return 'heli';
+    case 'A1': case 'B1': case 'B4': return 'light';
     case 'A2': return 'small';
     case 'A3': case 'A4': case 'A6': return 'large';
     case 'A5': return 'heavy';
   }
+  if (a.type && HELI_TYPES.test(a.type)) return 'heli';
+  if (/HELICOPTER|COPTER/.test(a.description ?? '')) return 'heli';
   return a.type && LIGHT_TYPES.test(a.type) ? 'light' : 'large';
 }

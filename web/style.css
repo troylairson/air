@@ -232,6 +232,15 @@ body.cards-hidden main { display: none; }
 .map-plane[data-size="light"] { --plane-size: 0.7; }
 .map-plane[data-size="light"]:not(.is-hero) .map-plane-label { top: 28px; }
 .map-plane[data-size="small"] { --plane-size: 0.8; }
+.map-plane[data-size="heli"] { --plane-size: 0.75; }
+.map-plane[data-size="heli"]:not(.is-hero) .map-plane-label { top: 30px; }
+.map-plane .rotor {
+  transform-origin: 12px 8.95px;
+  animation: rotor-spin 0.6s linear infinite;
+  opacity: 0.75;
+}
+@keyframes rotor-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .map-plane .rotor { animation: none; } }
 .map-plane[data-size="heavy"] { --plane-size: 1.15; }
 .map-plane.is-hero { --plane-pick: 1.35; }
 .map-plane.is-hero .map-plane-body svg { fill: var(--accent); }
