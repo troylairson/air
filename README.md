@@ -254,7 +254,7 @@ possible.
 | `refreshSeconds` | `5` | How often to fetch aircraft |
 | `listCount` | `5` | Most rows under the main card (fewer if the screen is short) |
 | `sources` | FreeFlight | Data URLs tried in order. `{lat}`, `{lon}` and `{radius}` are filled in. |
-| `routeSetUrl` | adsb.lol via nginx | First route lookup (POST). `""` to use adsbdb only. |
+| `standingDataUrl` | GitHub via nginx | Community route data, tried first. `""` to use adsbdb only. |
 | `routeUrl` | adsbdb via nginx | Fallback route lookup URL. `{callsign}` is filled in. |
 | `airlineUrl` | adsbdb via nginx | Airline-name lookup URL. `{code}` (the callsign's ICAO prefix) is filled in. |
 | `clock24h` | `true` | 24-hour clock |
@@ -275,10 +275,11 @@ within a minute.
 - `web/adapter.js` turns ADSBExchange-v2-style records (FreeFlight's `/v2/point`, adsb.lol,
   airplanes.live, or a readsb `aircraft.json`) into one shape, and works out distance and bearing
   from home itself. Swapping the data source is a config change.
-- Routes are looked up once per callsign: first from adsb.lol's route lookup, which uses the
-  community [standing-data](https://github.com/vradarserver/standing-data) route list (updated
-  daily, and it keeps multi-leg flights such as JFK → CVG → JFK), then from adsbdb (cached by nginx
-  for 24 hours) for callsigns adsb.lol doesn't know.
+- Routes are looked up once per callsign: first in the community
+  [standing-data](https://github.com/vradarserver/standing-data) route list (updated daily, and it
+  keeps multi-leg flights such as JFK → CVG → JFK), then from adsbdb (cached by nginx for 24
+  hours) for callsigns that list doesn't have. nginx fetches the standing-data CSV files from
+  GitHub as needed (one per airline, plus small airport files) and keeps each for a day.
 - Route databases go stale, especially for regional airlines that reuse flight numbers, so every
   route is checked against where the plane actually is. A leg counts only if the plane is within
   100 nm (or 20% of the leg) of the straight line between its airports, between them, and heading

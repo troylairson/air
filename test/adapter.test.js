@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass, parseRouteSet, pickLeg } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass, pickLeg, normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -170,20 +170,34 @@ const CVG = { code: 'CVG', city: 'Cincinnati', lat: 39.0488, lon: -84.6678 };
 const RDU = { code: 'RDU', city: 'Raleigh/Durham', lat: 35.8776, lon: -78.7875 };
 const nearAkron = { lat: 40.96, lon: -81.52, track: 85 };
 
-test('adsb.lol routeset: multi-leg airports with coordinates; null when unknown', () => {
-  const r = parseRouteSet([{
-    callsign: 'RPA4388', airport_codes: 'KJFK-KCVG-KJFK', _airport_codes_iata: 'JFK-CVG-JFK', plausible: true,
-    _airports: [
-      { iata: 'JFK', icao: 'KJFK', location: 'New York', name: 'John F Kennedy International Airport', lat: 40.6413, lon: -73.7781 },
-      { iata: 'CVG', icao: 'KCVG', location: 'Cincinnati', name: 'Cincinnati Northern Kentucky International Airport', lat: 39.0488, lon: -84.6678 },
-      { iata: 'JFK', icao: 'KJFK', location: 'New York', name: 'John F Kennedy International Airport', lat: 40.6413, lon: -73.7781 },
-    ],
-  }], 'RPA4388');
-  assert.deepEqual(r.airports.map((a) => a.code), ['JFK', 'CVG', 'JFK']);
-  assert.equal(r.airports[1].city, 'Cincinnati');
-  assert.equal(r.source, 'adsb.lol');
-  assert.equal(parseRouteSet([{ callsign: 'XXX1', _airport_codes_iata: 'unknown', _airports: [] }], 'XXX1'), null);
-  assert.equal(parseRouteSet([], 'XXX1'), null);
+test('standing data: callsign normalisation, as in its README', () => {
+  assert.equal(normalizeCallsign('EZY1200').callsign, 'EZY1200');
+  assert.equal(normalizeCallsign('EZY0001').callsign, 'EZY1');
+  assert.equal(normalizeCallsign('EZY0000').callsign, 'EZY0');
+  assert.equal(normalizeCallsign('EZY00AB').callsign, 'EZY0AB');
+  assert.equal(normalizeCallsign('RPA4388').callsign, 'RPA4388');
+  assert.equal(normalizeCallsign('N333FA'), null);
+  assert.equal(normalizeCallsign('DAL12345'), null); // number too long
+});
+
+test('standing data: route files and airport files', () => {
+  assert.deepEqual(routeFiles(normalizeCallsign('RPA4388')), ['routes/schema-01/R/RPA-all.csv', 'routes/schema-01/R/RPA-4.csv']);
+  assert.equal(airportFile('EGLL'), 'airports/schema-01/E/EG.csv');
+});
+
+test('standing data: route codes and airports from the real CSV rows', () => {
+  const routes = '\uFEFFCallsign,Code,Number,AirlineCode,AirportCodes\r\nRPA1012,RPA,1012,RPA,KLGB-KDEN\r\nRPA4388,RPA,4388,RPA,KJFK-KCVG-KJFK\r\n';
+  assert.deepEqual(findRouteCodes(routes, 'RPA4388'), ['KJFK', 'KCVG', 'KJFK']);
+  assert.equal(findRouteCodes(routes, 'RPA9999'), null);
+  const airports = parseAirports(
+    'Code,Name,ICAO,IATA,Location,CountryISO2,Latitude,Longitude,AltitudeFeet\n' +
+      'KJFK,John F Kennedy International Airport,KJFK,JFK,New York,US,40.639801,-73.778900,13\n' +
+      'KXYZ,"Field, Private",KXYZ,,Somewhere,US,,,0\n',
+  );
+  assert.deepEqual(airports.get('KJFK'), { code: 'JFK', city: 'New York', name: 'John F Kennedy International Airport', lat: 40.639801, lon: -73.7789 });
+  assert.equal(airports.get('KXYZ').name, 'Field, Private'); // quoted comma
+  assert.equal(airports.get('KXYZ').code, 'KXYZ'); // no IATA code
+  assert.equal(airports.get('KXYZ').lat, null);
 });
 
 test('pickLeg: the leg the plane is flying, from a multi-leg route', () => {
