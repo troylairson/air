@@ -64,11 +64,13 @@ function standingDataFile(path) {
   return null;
 }
 
+// hexdb.io-style routes: DLH4UN is known only here, so its card exercises the third source.
+const HEXDB = { DLH4UN: 'EDDF-EGLL' };
+
 const ROUTES = {
   BAW117: { airline: 'British Airways', iata: 'BA117', o: 'JFK', d: 'LHR' },
   EIN154: { airline: 'Aer Lingus', iata: 'EI154', o: 'LHR', d: 'DUB' },
   UAL901: { airline: 'United Airlines', iata: 'UA901', o: 'LHR', d: 'SFO' },
-  DLH4UN: { airline: 'Lufthansa', iata: 'LH903', o: 'FRA', d: 'LHR' },
   AAL2401: { airline: 'American Airlines', iata: 'AA2401', o: 'JFK', d: 'LHR' }, // right, where standing data is stale
 };
 
@@ -151,6 +153,11 @@ http
       const near = aircraft(HOME).filter((a) => Math.hypot((a.lat - center.lat) * 60, (a.lon - center.lon) * 60 * Math.cos((center.lat * Math.PI) / 180)) <= radius);
       const ac = empty ? [] : [...near, ...traffic(center, radius)];
       return send(res, 200, { ac, msg: 'No error', now: Date.now(), total: ac.length });
+    }
+    m = p.match(/^\/api\/hexdb\/route\/(.+)$/);
+    if (m) {
+      const cs = decodeURIComponent(m[1]).toUpperCase();
+      return HEXDB[cs] ? send(res, 200, { flight: cs, route: HEXDB[cs], updatetime: 1700000000 }) : send(res, 404, { status: '404', error: 'Route not found.' });
     }
     m = p.match(/^\/api\/airline\/(.+)$/);
     if (m) {
