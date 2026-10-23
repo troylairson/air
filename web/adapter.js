@@ -199,6 +199,14 @@ export function parseAirports(csvText) {
   );
 }
 
+// hexdb.io /api/v1/route/icao/<callsign> body ({ flight, route: "EIDW-EGLL", updatetime }) -> the
+// route's ICAO airport codes in flying order, or null. A third community database: often missing
+// or years old (updatetime), which is why its routes go through pickLeg() like the others.
+export function parseHexdbRoute(json) {
+  const codes = str(json?.route)?.split('-').map((c) => c.trim()).filter(Boolean) ?? [];
+  return codes.length >= 2 ? codes : null;
+}
+
 // Signed distance (nm) of point p from the great circle o->d (cross-track), and how far along
 // o->d its foot lies (along-track, nm; negative = behind o).
 function trackDistances(o, d, p) {

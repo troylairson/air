@@ -1,6 +1,6 @@
 import {
   parseFeed, filterAircraft, parseRoute, pickLeg, isPrivateFlight, modelName, airlineCode, parseAirline,
-  normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports,
+  normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports, parseHexdbRoute,
 } from './adapter.js';
 import { createMap } from './map.js';
 
@@ -14,6 +14,7 @@ const DEFAULTS = {
   sources: ['/api/aircraft/{lat}/{lon}/{radius}'],
   standingDataUrl: '/api/sd', // community route data (GitHub, via nginx); '' to use adsbdb only
   routeUrl: '/api/route/{callsign}',
+  hexdbRouteUrl: '/api/hexdb/route/{callsign}', // third route source; '' to skip
   airlineUrl: '/api/airline/{code}',
   clock24h: true,
   night: { enabled: false, start: '23:00', end: '06:30', brightness: 0.25 },
@@ -164,15 +165,34 @@ async function standingDataRoute(callsign) {
     }
   }
   if (!codes) return { route: null };
-  const files = [...new Set(codes.map(airportFile))];
-  const tables = await Promise.all(files.map(async (f) => parseAirports((await sdFile(f)) ?? '')));
-  const lookup = (code) => tables.map((t) => t.get(code)).find(Boolean) ?? { code, city: null, name: null, lat: null, lon: null };
-  return { route: { airline: null, flightNumber: null, airports: codes.map(lookup), source: 'standing-data' } };
+  return { route: { airline: null, flightNumber: null, airports: await airportsFor(codes), source: 'standing-data' } };
 }
 
-// Routes for a callsign, from both the community standing data (updated daily, multi-leg) and
-// adsbdb, looked up together. Either can be stale or wrong; legFor() shows the first one that
-// fits where the plane actually is (pickLeg), standing data first.
+// ICAO airport codes -> airports with names and coordinates, from the standing-data airport files.
+// Codes it can't find keep just their code (no coordinates, so pickLeg can't check that leg).
+async function airportsFor(codes) {
+  const unknown = (code) => ({ code, city: null, name: null, lat: null, lon: null });
+  if (!state.config.standingDataUrl) return codes.map(unknown);
+  const files = [...new Set(codes.map(airportFile))];
+  const tables = await Promise.all(files.map(async (f) => parseAirports((await sdFile(f).catch(() => null)) ?? '')));
+  return codes.map((code) => tables.map((t) => t.get(code)).find(Boolean) ?? unknown(code));
+}
+
+// Route from hexdb.io: a route, null (not known), or undefined (failed).
+async function hexdbRoute(callsign) {
+  try {
+    const { ok, status, json } = await fetchJson(state.config.hexdbRouteUrl.replace('{callsign}', encodeURIComponent(callsign)));
+    if (!ok) return status === 404 ? null : undefined;
+    const codes = parseHexdbRoute(json);
+    return codes && { airline: null, flightNumber: null, airports: await airportsFor(codes), source: 'hexdb' };
+  } catch {
+    return undefined;
+  }
+}
+
+// Routes for a callsign, from the community standing data (updated daily, multi-leg), adsbdb and
+// hexdb.io, looked up together. Any can be stale or wrong; legFor() shows the first one that fits
+// where the plane actually is (pickLeg), in that order.
 async function lookupRoute(a) {
   const { callsign } = a;
   const cached = state.routes.get(callsign);
@@ -186,7 +206,8 @@ async function lookupRoute(a) {
     ({ ok, status, json }) => (ok ? parseRoute(json) : status === 404 ? null : undefined),
     () => undefined,
   );
-  const answers = await Promise.all([fromStandingData, fromAdsbdb]);
+  const fromHexdb = state.config.hexdbRouteUrl ? hexdbRoute(callsign) : Promise.resolve(null);
+  const answers = await Promise.all([fromStandingData, fromAdsbdb, fromHexdb]);
   const routes = answers.filter(Boolean);
   if (routes.length || answers.every((r) => r !== undefined)) state.routes.set(callsign, { routes }); // else retried later
   // No airline name from adsbdb: name it from the callsign's prefix instead.

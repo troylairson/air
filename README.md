@@ -257,7 +257,8 @@ possible.
 | `listCount` | `5` | Most rows under the main card (fewer if the screen is short) |
 | `sources` | FreeFlight | Data URLs tried in order. `{lat}`, `{lon}` and `{radius}` are filled in. |
 | `standingDataUrl` | GitHub via nginx | Community route data, tried first. `""` to use adsbdb only. |
-| `routeUrl` | adsbdb via nginx | Fallback route lookup URL. `{callsign}` is filled in. |
+| `routeUrl` | adsbdb via nginx | Second route source. `{callsign}` is filled in. |
+| `hexdbRouteUrl` | hexdb.io via nginx | Third route source. `""` to skip it. |
 | `airlineUrl` | adsbdb via nginx | Airline-name lookup URL. `{code}` (the callsign's ICAO prefix) is filled in. |
 | `clock24h` | `true` | 24-hour clock |
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
@@ -278,12 +279,13 @@ within a minute.
 - `web/adapter.js` turns ADSBExchange-v2-style records (FreeFlight's `/v2/point`, adsb.lol,
   airplanes.live, or a readsb `aircraft.json`) into one shape, and works out distance and bearing
   from home itself. Swapping the data source is a config change.
-- Routes are looked up once per callsign, from two sources at once: the community
+- Routes are looked up once per callsign, from three sources at once: the community
   [standing-data](https://github.com/vradarserver/standing-data) route list (updated daily, and it
-  keeps multi-leg flights such as JFK → CVG → JFK) and adsbdb. nginx fetches the standing-data CSV
-  files from GitHub as needed (one per airline, plus small airport files) and caches them, and
-  adsbdb's answers, for a day.
-- Both sources go stale, especially for regional airlines that reuse flight numbers, so every
+  keeps multi-leg flights such as JFK → CVG → JFK), adsbdb, and [hexdb.io](https://hexdb.io/).
+  nginx fetches the standing-data CSV files from GitHub as needed (one per airline, plus small
+  airport files, which also give hexdb's airports their coordinates) and caches them, and the other
+  two sources' answers, for a day.
+- All three go stale, especially for regional airlines that reuse flight numbers, so every
   route is checked against where the plane actually is, and the first source whose route fits is
   shown. A leg fits only if the plane is
   - within 90 nm (or 12% of the leg) of the straight line between its airports, and between them;

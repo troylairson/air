@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass, pickLeg, normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass, pickLeg, normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports, parseHexdbRoute } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -271,4 +271,11 @@ test('pickLeg: keeps the preferred leg while it fits, so the card does not flip'
   const nearJfk = { lat: 40.7, lon: -74.1, track: 180 }; // circling 20 nm west of JFK: heading fits neither leg
   assert.equal(pickLeg({ airports: [JFK, CVG, JFK] }, nearJfk, { origin: 'CVG', destination: 'JFK' }).origin.code, 'CVG');
   assert.equal(pickLeg({ airports: [JFK, CVG, JFK] }, nearJfk, { origin: 'JFK', destination: 'CVG' }).origin.code, 'JFK');
+});
+
+test('hexdb route: ICAO codes from "EIDW-EGLL", null when missing', () => {
+  assert.deepEqual(parseHexdbRoute({ flight: 'EIN17A', route: 'EIDW-EGLL', updatetime: 1397991739 }), ['EIDW', 'EGLL']);
+  assert.deepEqual(parseHexdbRoute({ flight: 'X1', route: 'KORD-KCAK-KORD' }), ['KORD', 'KCAK', 'KORD']);
+  assert.equal(parseHexdbRoute({ status: '404', error: 'Route not found.' }), null);
+  assert.equal(parseHexdbRoute({ route: 'KORD' }), null);
 });
