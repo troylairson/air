@@ -1,5 +1,8 @@
-# Builds the Android TV app (android/) into an installable APK on every change to it.
-# Download it from the run's "Artifacts" (overhead-tv-apk); see README, "Android TV app".
+# Builds the Android TV app (android/) into an installable APK on every change to it. Builds of
+# main are also published as a GitHub release, so the newest APK is always at
+# https://github.com/troylairson/air/releases/latest/download/overhead-tv.apk
+# (the box redirects http://<box>:8090/tv.apk there, for the Downloader app on the TV).
+# PR builds are only attached to their run, as the overhead-tv-apk artifact.
 name: Android TV app
 
 on:
@@ -13,6 +16,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the release
     steps:
       - uses: actions/checkout@v4
 
@@ -34,3 +39,16 @@ jobs:
           name: overhead-tv-apk
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      - name: Publish release (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: 1.0.${{ github.run_number }}
+        run: |
+          cp android/app/build/outputs/apk/release/overhead-tv-release.apk overhead-tv.apk
+          gh release create "tv-v$VERSION" overhead-tv.apk \
+            --target "$GITHUB_SHA" \
+            --title "Overhead TV app $VERSION" \
+            --notes "Android TV app build $VERSION. Install on the TV with the Downloader app: http://<box-ip>:8090/tv.apk (see README, \"Android TV app\")." \
+            --latest
