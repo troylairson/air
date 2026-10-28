@@ -18,6 +18,8 @@ const DEFAULTS = {
   airlineUrl: '/api/airline/{code}',
   clock24h: true,
   night: { enabled: false, start: '23:00', end: '06:30', brightness: 0.25 },
+  // TV mode (the Android TV app opens the page with ?mode=tv): different defaults for a TV.
+  tv: { cardsHidden: true, maxViewRadiusNm: 100 },
   map: {
     enabled: true,
     // OpenStreetMap's own tiles: free, no API key. They're light, so darkTiles inverts them
@@ -28,12 +30,15 @@ const DEFAULTS = {
     tileBrightness: 0.9, // with darkTiles: higher is a lighter map
     planeColor: '#ffd23f', // gold: a hue the map itself never uses
     viewRadiusNm: 4, // how far from home the map shows at rest
+    showRadius: false, // draw the overhead radius (radiusNm) as a dashed circle
+    maxViewRadiusNm: 250, // furthest the map zooms out (250 nm is FreeFlight's limit)
     recenterSeconds: 60, // after you drag or zoom, return to the home view this long after
     trailMinutes: 20,
   },
 };
 
 const FETCH_TIMEOUT_MS = 8000;
+const TV = new URLSearchParams(location.search).get('mode') === 'tv';
 const ROUTE_RETRY_MS = 5 * 60 * 1000;
 
 const state = {
@@ -67,7 +72,10 @@ async function loadConfig() {
     units: { ...DEFAULTS.units, ...user.units },
     night: { ...DEFAULTS.night, ...user.night },
     map: { ...DEFAULTS.map, ...user.map },
+    tv: { ...DEFAULTS.tv, ...user.tv },
   };
+  // On a TV, cap zooming out (TV processors are slow) unless config.json sets its own cap there.
+  if (TV) config.map.maxViewRadiusNm = Math.min(config.map.maxViewRadiusNm, config.tv.maxViewRadiusNm);
   if (typeof config.home?.lat !== 'number' || typeof config.home?.lon !== 'number') {
     throw new Error('config.json needs home.lat and home.lon');
   }
@@ -359,7 +367,8 @@ function renderHero(a) {
       : r
         ? '<span class="muted">Route unconfirmed</span>' // listed route doesn't fit where the plane is
         : '<span class="muted">Route unknown</span>';
-  const picked = a.hex === state.selected ? '<div class="picked">Selected · click the map to go back</div>' : '';
+  const back = TV ? 'press Back to return' : 'click the map to go back';
+  const picked = a.hex === state.selected ? `<div class="picked">Selected · ${back}</div>` : '';
   return `${picked}
     <div class="hero-top">
       <div>
@@ -444,33 +453,22 @@ function updateMap(heroAc) {
   state.map.update(featured, heroAc, mapLabel, heroRoute);
 }
 
-// Frames the map in the part of the screen the cards don't cover.
+// Frames the home view with home in the middle of the screen (the card, when shown, sits over the
+// left or bottom of the map).
 function fitMap() {
   if (!state.map) return;
-  const header = document.querySelector('header').getBoundingClientRect();
-  const panel = document.querySelector('main').getBoundingClientRect();
   const gap = 24;
-  const portrait = window.innerHeight > window.innerWidth;
-  const cardsHidden = document.body.classList.contains('cards-hidden');
   state.map.invalidate();
-  state.map.fit(
-    cardsHidden
-      ? { topLeft: [gap, header.bottom + gap], bottomRight: [gap, gap] }
-      : portrait
-      ? { topLeft: [gap, header.bottom + gap], bottomRight: [gap, window.innerHeight * 0.52 + gap] }
-      : { topLeft: [panel.right + gap, header.bottom + gap], bottomRight: [gap, gap] },
-  );
+  state.map.fit({ topLeft: [gap, gap], bottomRight: [gap, gap] });
 }
 
 function setupMap() {
   if (!state.config.map.enabled || typeof L === 'undefined') return; // map off, or Leaflet failed to load
   document.body.classList.add('with-map');
   state.map = createMap($('map'), state.config, { onSelect: selectPlane, onViewChange: viewChanged });
-  setCardsHidden(readSetting('cardsHidden') === '1');
-  $('cards-toggle').addEventListener('click', () => setCardsHidden(!document.body.classList.contains('cards-hidden')));
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'c' || e.key === 'C') setCardsHidden(!document.body.classList.contains('cards-hidden'));
-  });
+  const saved = readSetting('cardsHidden');
+  setCardsHidden(saved === null ? TV && state.config.tv.cardsHidden : saved === '1');
+  $('cards-toggle').addEventListener('click', () => command('toggleCards'));
   let timer;
   window.addEventListener('resize', () => {
     clearTimeout(timer);
@@ -478,7 +476,57 @@ function setupMap() {
   });
 }
 
-// Map-only view: hides the card and list (button or the C key), remembered in this browser.
+// ---- Keyboard and TV remote. The Android TV app sends the remote's buttons here as commands
+// (window.overheadCommand); a keyboard, or a TV browser that passes keys through, uses keyMap.
+const keyMap = {
+  ArrowUp: 'panUp', ArrowDown: 'panDown', ArrowLeft: 'panLeft', ArrowRight: 'panRight',
+  '+': 'zoomIn', '=': 'zoomIn', PageUp: 'zoomIn', ChannelUp: 'zoomIn', MediaFastForward: 'zoomIn',
+  '-': 'zoomOut', PageDown: 'zoomOut', ChannelDown: 'zoomOut', MediaRewind: 'zoomOut',
+  Enter: 'nextPlane', ' ': 'nextPlane', MediaPlayPause: 'nextPlane',
+  Escape: 'back', Backspace: 'back', GoBack: 'back', BrowserBack: 'back',
+  c: 'toggleCards', C: 'toggleCards', m: 'toggleCards', ContextMenu: 'toggleCards', ColorF0Red: 'toggleCards',
+};
+
+// Runs a command; returns false when there was nothing to do (so the TV app can exit on Back).
+function command(name) {
+  if (name === 'toggleCards') {
+    setCardsHidden(!document.body.classList.contains('cards-hidden'));
+    return true;
+  }
+  if (name === 'nextPlane') return nextPlane();
+  if (name === 'back') {
+    // a picked plane, then a moved map, then nothing: Back leaves the app
+    if (state.selected) selectPlane(null);
+    else if (state.map && !state.map.atHome()) fitMap();
+    else return false;
+    return true;
+  }
+  return state.map?.command(name) ?? false;
+}
+window.overheadCommand = command;
+
+// OK on the remote: pick the next plane for the card, nearest to home first, then back to normal.
+function nextPlane() {
+  const seen = new Set();
+  const order = [...(state.aircraft ?? []), ...state.viewAircraft]
+    .filter((a) => !seen.has(a.hex) && seen.add(a.hex))
+    .sort((a, b) => a.distanceNm - b.distanceNm)
+    .slice(0, 20);
+  if (!order.length) return false;
+  const i = order.findIndex((a) => a.hex === state.selected);
+  selectPlane(i + 1 < order.length ? order[i + 1].hex : null);
+  return true;
+}
+
+function setupKeys() {
+  window.addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const name = keyMap[e.key];
+    if (name && command(name)) e.preventDefault();
+  });
+}
+
+// Map-only view: hides the card and list (button, the C key or the remote), remembered in this browser.
 function setCardsHidden(hidden) {
   document.body.classList.toggle('cards-hidden', hidden);
   const button = $('cards-toggle');
@@ -589,6 +637,7 @@ async function start() {
     return;
   }
   setupMap();
+  setupKeys();
   tickClock();
   setInterval(tickClock, 1000);
   checkForUpdate();
@@ -596,5 +645,6 @@ async function start() {
   refresh();
 }
 
+if (TV) document.body.classList.add('tv');
 setupBrowserControls();
 start();

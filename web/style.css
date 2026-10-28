@@ -310,3 +310,12 @@ body.cards-hidden.has-selection .list { display: none; }
 }
 .leaflet-bar { border: 1px solid var(--line) !important; box-shadow: none !important; }
 body.idle-cursor .leaflet-control-zoom { opacity: 0; transition: opacity 0.5s; } /* hide with the pointer */
+
+/* ------------------------------------------------------------ TV mode (?mode=tv, the Android TV app) */
+
+/* Many TVs crop the screen edges (overscan): keep text and cards inside the middle 90-94%. */
+body.tv { padding: 5vh 4vw; }
+body.tv .leaflet-bottom.leaflet-right { margin: 0 3vw 2vh 0; }
+/* No mouse on a TV: the remote does zooming (channel/+−) and the map-only toggle (menu). */
+body.tv .leaflet-control-zoom,
+body.tv .cards-toggle { display: none; }
