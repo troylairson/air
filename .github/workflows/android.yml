@@ -1,0 +1,36 @@
+# Builds the Android TV app (android/) into an installable APK on every change to it.
+# Download it from the run's "Artifacts" (overhead-tv-apk); see README, "Android TV app".
+name: Android TV app
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # The runner image has the Android SDK; the build fetches any missing platform itself.
+      - name: Build APK
+        run: gradle --no-daemon -p android assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: overhead-tv-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

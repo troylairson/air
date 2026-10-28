@@ -2,3 +2,10 @@
 config.json
 .env
 node_modules/
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+# The Android TV app, if copied onto the box to install from (see README)
+web/*.apk
