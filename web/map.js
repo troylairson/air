@@ -18,6 +18,7 @@ const MARKER_LABEL_ZOOM = 10; // below this, home-area markers (packed within a 
 const BULK_LABEL_ZOOM = 9; // canvas planes get labels from this zoom in...
 const BULK_LABEL_MAX = 150; // ...and only while this few are on screen
 const HIT_PX = 14; // a click this close to a canvas plane picks it
+const BADGE_PX = 14; // airline logo badge beside a canvas plane's label
 
 // Symbols on a 24x24 grid, nose up. Airliner: swept wings. Light aircraft: straight wings, small
 // tail. Helicopter: cabin, tail boom and tail rotor, plus a two-blade main rotor that spins.
@@ -386,8 +387,60 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
       ctx.fillStyle = '#eef1f5';
       ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
       ctx.shadowBlur = 3;
-      for (const [, b, pt] of onScreen) ctx.fillText(b.label, pt.x, pt.y + 20);
+      for (const [, b, pt] of onScreen) {
+        if (!b.logo) {
+          ctx.fillText(b.label, pt.x, pt.y + 20);
+          continue;
+        }
+        // badge and label centred together under the plane
+        const w = BADGE_PX + 4 + ctx.measureText(b.label).width;
+        const x = pt.x - w / 2;
+        ctx.textAlign = 'left';
+        ctx.fillText(b.label, x + BADGE_PX + 4, pt.y + 20);
+        ctx.textAlign = 'center';
+        ctx.shadowBlur = 0;
+        drawBadge(b.logo, x, pt.y + 20 - BADGE_PX + 3);
+        ctx.shadowBlur = 3;
+      }
     }
+  }
+
+  // Airline logos for the canvas badges, loaded once per URL. Until one loads (or if there's
+  // none), the badge shows the airline's code instead, as the markers' badges do.
+  const logoImages = new Map(); // url -> Image, or null when it failed to load
+  function logoImage(url) {
+    if (!url) return null;
+    if (!logoImages.has(url)) {
+      const img = new Image();
+      img.onerror = () => logoImages.set(url, null);
+      img.src = url;
+      logoImages.set(url, img);
+    }
+    const img = logoImages.get(url);
+    return img?.complete && img.naturalWidth ? img : null;
+  }
+
+  function drawBadge(logo, x, y) {
+    const img = logoImage(logo.url);
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, BADGE_PX, BADGE_PX, 3);
+    else ctx.rect(x, y, BADGE_PX, BADGE_PX); // older Android TV WebViews
+    ctx.fillStyle = img ? '#fff' : '#2a3646';
+    ctx.fill();
+    if (img) {
+      const k = (BADGE_PX - 2) / Math.max(img.naturalWidth, img.naturalHeight); // contain, 1px inset
+      const iw = img.naturalWidth * k;
+      const ih = img.naturalHeight * k;
+      ctx.drawImage(img, x + (BADGE_PX - iw) / 2, y + (BADGE_PX - ih) / 2, iw, ih);
+    } else {
+      ctx.save();
+      ctx.font = '800 7px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#eef1f5';
+      ctx.fillText(logo.code, x + BADGE_PX / 2, y + BADGE_PX / 2 + 2.5, BADGE_PX - 2);
+      ctx.restore();
+    }
+    ctx.fillStyle = '#eef1f5';
   }
 
   // Moves every plane along its predicted path, a few times a second.
@@ -408,8 +461,9 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   }
   requestAnimationFrame(frame);
 
-  // Everything else in view: plain list, drawn on the canvas. labelFor(a) gives plain text.
-  function updateBulk(aircraft, labelFor) {
+  // Everything else in view: plain list, drawn on the canvas. labelFor(a) gives plain text,
+  // logoFor(a) the airline's { code, url } for its badge (or null).
+  function updateBulk(aircraft, labelFor, logoFor) {
     const now = Date.now();
     for (const a of aircraft) record(a, now);
     bulk = new Map(
@@ -419,6 +473,7 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
           base: { lat: a.lat, lon: a.lon, time: a.positionTime ?? now, speedKt: a.speedKt, track: a.track },
           size: sizeClass(a),
           label: labelFor(a),
+          logo: logoFor?.(a) ?? null,
         },
       ]),
     );

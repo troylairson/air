@@ -302,12 +302,13 @@ possible.
 | `routeUrl` | adsbdb via nginx | Second route source. `{callsign}` is filled in. |
 | `hexdbRouteUrl` | hexdb.io via nginx | Third route source. `""` to skip it. |
 | `airlineUrl` | adsbdb via nginx | Airline-name lookup URL. `{code}` (the callsign's ICAO prefix) is filled in. |
-| `logoUrl` | GitHub via nginx | Airline logo on the closest or picked plane's map tag. `{icao}` is filled in. `""` shows the airline code instead. |
+| `logoUrl` | GitHub via nginx | Airline logos on the map. `{icao}` is filled in. `""` shows the airline code instead. |
 | `clock24h` | `true` | 24-hour clock |
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
 | `map.enabled` | `true` | Live map behind the cards. `false` gives the plain card-and-list page. |
 | `map.trailMinutes` | `20` | How much of each aircraft's trail to keep (5 minutes when over 600 planes are loaded) |
 | `map.tileUrl`, `map.attribution` | OpenStreetMap | Map background tiles and their credit line; any Leaflet tile URL works |
+| `map.logos` | `true` | Airline logo badge beside each labelled plane. `false` keeps it to the closest/picked plane's tag. |
 | `map.darkTiles` | `true` | Invert light tiles into a dark map. Set `false` for tiles that are already dark. |
 | `map.tileBrightness` | `0.9` | How light the darkened map is (try 0.7 to 1.2) |
 | `map.planeColor` | `#ffd23f` (gold) | Colour of the planes and their trails; the closest/picked plane is white with an amber glow |
@@ -350,10 +351,12 @@ within a minute.
   7 days.
 - Map labels show the airline's short name and flight number (DAL1605 → Delta DL1605): the IATA
   code from the airline lookup plus the callsign's number. Private flights show the registration.
-  The closest plane (or a picked one) gets a tag with the airline's logo, name, flight and route.
+  Each airline's label has a small logo badge (`map.logos`), and the closest plane (or a picked
+  one) gets a bigger tag with the airline's logo, name, flight and route. Badges appear wherever
+  labels do, so zoomed far out only the tag shows.
 - Logos come from [Jxck-S/airline-logos](https://github.com/Jxck-S/airline-logos) on GitHub, by
   ICAO code: its RadarBox set first, then its FlightAware set. nginx caches each for 30 days. When
-  neither has the airline, the tag shows its two-letter code. The logos belong to the airlines;
+  neither has the airline, the badge shows its two-letter code. The logos belong to the airlines;
   they're used here only to identify flights on a private, non-commercial display.
 - If a fetch fails, the page keeps the last data and marks it stale. It never goes blank.
 - Planes move smoothly between the 5-second updates: the page moves each one forward from its last
