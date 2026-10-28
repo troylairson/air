@@ -1,0 +1,51 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Version from the GitHub Actions run number, so every build installs over the last one.
+def build = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as int
+
+android {
+    namespace 'com.overhead.tv'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.overhead.tv'
+        minSdk 21          // Android TV 5.0 and later
+        targetSdk 34
+        versionCode build
+        versionName "1.0.${build}"
+    }
+
+    // A fixed key kept in the repo, so each new build installs as an update of the last one.
+    // It's only for sideloading onto your own TV, not for the Play Store.
+    signingConfigs {
+        release {
+            storeFile file('overhead.keystore')
+            storePassword 'overhead'
+            keyAlias 'overhead'
+            keyPassword 'overhead'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    base {
+        archivesName = 'overhead-tv'
+    }
+}

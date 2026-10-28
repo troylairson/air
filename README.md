@@ -28,6 +28,7 @@ web/                      the display: index.html, style.css, app.js, adapter.js
 web/vendor/leaflet/       Leaflet 1.9.4 map library (BSD-2-Clause), kept here so there's no build step
 config.example.json       copy to config.json (gitignored: holds your home location)
 .env.example              copy to .env (gitignored): display port + FreeFlight settings
+android/                  the Android TV app (built into an APK by .github/workflows/android.yml)
 dev/server.mjs            local preview with fake aircraft (on a laptop, optional)
 test/                     adapter unit tests
 ```
@@ -215,6 +216,45 @@ Goal: the display comes back by itself after a power cut, and changes take one c
 **Check:** after a reboot of the box, the open browser tab shows live aircraft again within
 2 minutes with no one touching it. While the box is down the page shows "Stale"; it never needs
 a manual refresh.
+
+## Android TV app
+
+An Android TV app (in `android/`) shows the display full screen on the TV: an "Overhead" tile on
+the TV's home screen, the screen kept on, and the remote's buttons wired to the map. It's only a
+window onto the page the box serves (in TV mode), so every update still comes from
+`git pull && ./start.sh`; the app rarely needs reinstalling.
+
+**Get the app.** GitHub builds it whenever `android/` changes: open the repo on GitHub → Actions
+→ "Android TV app" → the latest run → Artifacts → `overhead-tv-apk`, and unzip it to get
+`overhead-tv-release.apk`.
+
+**Install it** (once; later versions install over it, settings kept). Either:
+
+- **Through the box and the Downloader app** (no cables or computer commands on the TV):
+  1. Copy the APK into the display's folder on the box, from the computer that downloaded it:
+     `scp overhead-tv-release.apk <user>@<box-ip>:/DATA/AppData/overhead/web/overhead-tv.apk`
+  2. On the TV, install **Downloader** (by AFTVnews) from the app store, allow it to install apps
+     when asked (Settings → Apps → Security → Unknown sources, on some TVs), and open
+     `http://<box-ip>:8090/overhead-tv.apk` in it. Choose Install.
+- **With adb** from a computer: turn on Developer options on the TV (Settings → Device
+  Preferences → About → press Build 7 times), then Developer options → USB/network debugging, and:
+  `adb connect <tv-ip>` then `adb install -r overhead-tv-release.apk`.
+
+**First start:** the app asks for the box's address, e.g. `192.168.1.50:8090`. To change it later,
+hold **Back** for a second.
+
+**Remote:**
+
+| Button | Does |
+| --- | --- |
+| Arrows | Move the map |
+| Channel up/down, or fast-forward/rewind | Zoom in/out |
+| OK | Show the next nearest plane's card (keep pressing to step through, then back to none) |
+| Menu (or the red button) | Map only ↔ card and list |
+| Back | Unpick the plane, then return to the home view, then leave the app |
+
+TV mode starts map-only and limits zooming out to 100 nm, since TV processors are slower than a
+computer's (`tv.cardsHidden`, `tv.maxViewRadiusNm` in `config.json`).
 
 ## Phase 4 (optional): your own receiver
 
