@@ -67,11 +67,13 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   element.style.setProperty('--tile-brightness', String(opts.tileBrightness));
   element.style.setProperty('--plane-color', opts.planeColor);
 
-  L.circle([home.lat, home.lon], {
-    radius: radiusNm * NM_TO_M,
-    className: 'map-radius',
-    interactive: false,
-  }).addTo(map);
+  if (opts.showRadius) {
+    L.circle([home.lat, home.lon], {
+      radius: radiusNm * NM_TO_M,
+      className: 'map-radius',
+      interactive: false,
+    }).addTo(map);
+  }
   L.marker([home.lat, home.lon], {
     icon: L.divIcon({ className: 'map-home', iconSize: [14, 14] }),
     interactive: false,
@@ -110,11 +112,13 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   }
   const trailPoints = (hex) => trails.get(hex)?.points ?? [];
 
-  // Frames map.viewRadiusNm around home in the part of the screen the cards don't cover.
+  // Frames map.viewRadiusNm around home, with home in the middle of the screen.
   let homePadding = null;
+  let atHome = false; // showing the home view fit() set, not one someone moved to
   function fit(padding = homePadding) {
     if (!padding) return;
     homePadding = padding;
+    atHome = true;
     const bounds = L.latLng(home.lat, home.lon).toBounds(2 * (opts.viewRadiusNm ?? radiusNm * fetchRadiusMultiplier) * NM_TO_M);
     map.fitBounds(bounds, { paddingTopLeft: padding.topLeft, paddingBottomRight: padding.bottomRight, animate: false });
     limitZoom();
@@ -130,22 +134,25 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   // The view the map shows.
   function view() {
     const c = map.getCenter();
-    return { lat: c.lat, lon: c.lng, radiusNm: Math.min(MAX_VIEW_RADIUS_NM, viewReachNm()) };
+    return { lat: c.lat, lon: c.lng, radiusNm: Math.min(maxReach, viewReachNm()) };
   }
   map.on('moveend', () => onViewChange?.(view()));
   // Zoomed far out, the home-area markers sit on top of each other: keep only the hero's label.
   const labelZoom = () => element.classList.toggle('few-labels', map.getZoom() < MARKER_LABEL_ZOOM);
   map.on('zoomend', labelZoom);
 
-  // Zooming out stops where the view's corners would be MAX_VIEW_RADIUS_NM from its centre.
-  // Each zoom level halves distances, so that zoom is a log2 step from the current one.
+  // Zooming out stops where the view's corners would be maxReach from its centre (250 nm at most,
+  // FreeFlight's limit; less where map.maxViewRadiusNm says so, e.g. on a TV). Each zoom level
+  // halves distances, so that zoom is a log2 step from the current one.
+  const maxReach = Math.min(MAX_VIEW_RADIUS_NM, opts.maxViewRadiusNm ?? MAX_VIEW_RADIUS_NM);
   function limitZoom() {
-    map.setMinZoom(Math.max(0, map.getZoom() - Math.log2(MAX_VIEW_RADIUS_NM / viewReachNm())));
+    map.setMinZoom(Math.max(0, map.getZoom() - Math.log2(maxReach / viewReachNm())));
   }
 
   // You can drag and zoom; the view returns home after map.recenterSeconds without touching it.
   let recenterTimer;
   const touched = () => {
+    atHome = false;
     clearTimeout(recenterTimer);
     if (opts.recenterSeconds > 0) recenterTimer = setTimeout(() => fit(), opts.recenterSeconds * 1000);
   };
@@ -458,8 +465,22 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
 
   if (location.hash === '#debug') window.overheadDebug = { map, drawnPlanes: () => drawn, bulkCount: () => bulk.size, trails };
 
+  // Remote-control and keyboard moves: pan by a quarter of the screen, zoom by half a level.
+  function command(name) {
+    const { x, y } = map.getSize();
+    const moves = { panUp: [0, -y / 4], panDown: [0, y / 4], panLeft: [-x / 4, 0], panRight: [x / 4, 0] };
+    if (moves[name]) map.panBy(moves[name]);
+    else if (name === 'zoomIn') map.zoomIn(0.5);
+    else if (name === 'zoomOut') map.zoomOut(0.5);
+    else return false;
+    touched();
+    return true;
+  }
+
   return {
     fit,
+    command,
+    atHome: () => atHome,
     update,
     updateBulk,
     view,

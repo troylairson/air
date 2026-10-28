@@ -196,6 +196,9 @@ Goal: the display comes back by itself after a power cut, and changes take one c
      after `map.recenterSeconds`. This works in the map-only view too.
    - **Map only:** the "Map only" button (bottom left, shown while the mouse moves) or the `C` key
      hides the card and list; press again to bring them back. Each browser remembers its choice.
+   - **Keyboard:** arrow keys pan, `+`/`−` zoom, `Enter` picks the next nearest plane for the card,
+     `Esc` goes back (unpicks the plane, then returns to the home view). The Android TV app maps the
+     remote's buttons to the same actions.
    - **Keep it awake:** browsers only let a page keep the screen on over HTTPS, so set the
      computer's own display sleep to "never" while it's showing the page.
    - **Open straight into full screen** (optional), as an app window with no browser bars:
@@ -268,7 +271,11 @@ possible.
 | `map.darkTiles` | `true` | Invert light tiles into a dark map. Set `false` for tiles that are already dark. |
 | `map.tileBrightness` | `0.9` | How light the darkened map is (try 0.7 to 1.2) |
 | `map.planeColor` | `#ffd23f` (gold) | Colour of the planes and their trails; the closest/picked plane is white with an amber glow |
-| `map.viewRadiusNm` | `4` | How far from home the map shows when nobody is touching it |
+| `map.viewRadiusNm` | `4` | How far from home the map shows when nobody is touching it (home is centred) |
+| `map.showRadius` | `false` | Draw the overhead radius (`radiusNm`) as a dashed circle around home |
+| `map.maxViewRadiusNm` | `250` | Furthest the map zooms out (250 nm is FreeFlight's limit) |
+| `tv.cardsHidden` | `true` | In TV mode (`?mode=tv`, the Android TV app): start map-only unless the TV has its own saved choice |
+| `tv.maxViewRadiusNm` | `100` | In TV mode: zoom-out cap, since TV processors are slower |
 | `map.recenterSeconds` | `60` | After you drag or zoom, the map returns to the home view this many seconds later (`0` = never) |
 
 To change the location or radius: `nano config.json`, then `./start.sh`. The screen reloads
