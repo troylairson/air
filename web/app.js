@@ -17,7 +17,7 @@ const DEFAULTS = {
   routeUrl: '/api/route/{callsign}',
   hexdbRouteUrl: '/api/hexdb/route/{callsign}', // third route source; '' to skip
   airlineUrl: '/api/airline/{code}',
-  logoUrl: '/api/logo/{icao}.png', // airline tail logos for the picked/closest plane's tag; '' for none
+  logoUrl: '/api/logo/{icao}.png', // airline logos beside the planes on the map; '' for none
   clock24h: true,
   night: { enabled: false, start: '23:00', end: '06:30', brightness: 0.25 },
   // TV mode (the Android TV app opens the page with ?mode=tv): different defaults for a TV.
@@ -36,6 +36,7 @@ const DEFAULTS = {
     maxViewRadiusNm: 250, // furthest the map zooms out (250 nm is FreeFlight's limit)
     recenterSeconds: 60, // after you drag or zoom, return to the home view this long after
     trailMinutes: 20,
+    logos: true, // airline logo (or code) beside each labelled plane; the closest/picked plane's tag always has one
   },
 };
 
@@ -460,18 +461,29 @@ function plainLabel(a) {
   const number = flightNo(a) || a.registration || a.hex.toUpperCase();
   return name ? `${name} ${number}` : number;
 }
-const mapLabel = (a) => esc(plainLabel(a));
+
+// The airline's logo for a plane: { code, url }, code being what shows when there's no logo; null
+// for private flights and callsigns without an airline prefix.
+function logoFor(a) {
+  const icao = !isPrivateFlight(a) && airlineCode(a.callsign);
+  if (!icao) return null;
+  const { logoUrl } = state.config;
+  return { code: state.airlines.get(icao)?.iata ?? icao, url: logoUrl ? logoUrl.replace('{icao}', icao) : null };
+}
+// the airline's code shows until (or unless) its logo loads over it
+function logoHtml(logo, cls) {
+  if (!logo) return '';
+  const img = logo.url ? `<img src="${esc(logo.url)}" alt="" onerror="this.remove()">` : '';
+  return `<span class="${cls}">${esc(logo.code)}${img}</span>`;
+}
+const badgesOn = () => state.config.map.logos !== false;
+const bulkLogo = (a) => (badgesOn() ? logoFor(a) : null);
+const mapLabel = (a) => `${badgesOn() ? logoHtml(logoFor(a), 'map-logo') : ''}<span>${esc(plainLabel(a))}</span>`;
 
 // The closest/picked plane's tag: logo, name and flight number, and the leg it's on.
 function heroTag(a) {
   const priv = isPrivateFlight(a);
-  const icao = priv ? null : airlineCode(a.callsign);
-  const iata = icao && state.airlines.get(icao)?.iata;
-  const logoUrl = icao && state.config.logoUrl ? state.config.logoUrl.replace('{icao}', icao) : null;
-  // the airline's code shows until (or unless) its logo loads over it
-  const logo = icao
-    ? `<span class="tag-logo">${esc(iata ?? icao)}${logoUrl ? `<img src="${esc(logoUrl)}" alt="" onerror="this.remove()">` : ''}</span>`
-    : '';
+  const logo = logoHtml(logoFor(a), 'tag-logo');
   const leg = priv ? null : legFor(a);
   const second = priv
     ? modelName(a) || 'Private flight'
@@ -501,7 +513,7 @@ function updateMap(heroAc) {
   const bulk = state.viewAircraft.filter((a) => !shown.has(a.hex));
   lookupAirlines(featured);
   lookupAirlines(bulk);
-  state.map.updateBulk(bulk, plainLabel);
+  state.map.updateBulk(bulk, plainLabel, bulkLogo);
   const heroRoute = heroAc && !isPrivateFlight(heroAc) ? legFor(heroAc) : null;
   state.map.update(featured, heroAc, (a) => (a === heroAc ? heroTag(a) : mapLabel(a)), heroRoute);
 }
