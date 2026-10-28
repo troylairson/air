@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass, pickLeg, normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports, parseHexdbRoute } from '../web/adapter.js';
+import { distanceNm, bearingDeg, normalizeRecord, parseFeed, filterAircraft, parseRoute, isPrivateFlight, modelName, greatCirclePoints, feedTime, projectPosition, airlineCode, parseAirline, sizeClass, pickLeg, normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports, parseHexdbRoute, shortAirlineName, parseAirlineIata, flightNumberFor } from '../web/adapter.js';
 
 const home = { lat: 51.47, lon: -0.4543 };
 
@@ -278,4 +278,27 @@ test('hexdb route: ICAO codes from "EIDW-EGLL", null when missing', () => {
   assert.deepEqual(parseHexdbRoute({ flight: 'X1', route: 'KORD-KCAK-KORD' }), ['KORD', 'KCAK', 'KORD']);
   assert.equal(parseHexdbRoute({ status: '404', error: 'Route not found.' }), null);
   assert.equal(parseHexdbRoute({ route: 'KORD' }), null);
+});
+
+test('short airline names for map labels', () => {
+  assert.equal(shortAirlineName('Delta Air Lines'), 'Delta');
+  assert.equal(shortAirlineName('United Airlines'), 'United');
+  assert.equal(shortAirlineName('Southwest Airlines'), 'Southwest');
+  assert.equal(shortAirlineName('American Airlines, Inc.'), 'American');
+  assert.equal(shortAirlineName('British Airways'), 'British Airways');
+  assert.equal(shortAirlineName('Republic Airways'), 'Republic Airways');
+  assert.equal(shortAirlineName('Air Canada'), 'Air Canada');
+  assert.equal(shortAirlineName('Envoy Air'), 'Envoy Air');
+  assert.equal(shortAirlineName(null), null);
+});
+
+test('IATA airline code and flight numbers', () => {
+  const json = { response: [{ name: 'Delta Air Lines', icao: 'DAL', iata: 'DL' }] };
+  assert.equal(parseAirlineIata(json, 'DAL'), 'DL');
+  assert.equal(parseAirlineIata({ response: [{ name: 'X', icao: 'XXX', iata: '' }] }, 'XXX'), null);
+  assert.equal(flightNumberFor('DAL1605', 'DL'), 'DL1605');
+  assert.equal(flightNumberFor('UAL0042', 'UA'), 'UA42');
+  assert.equal(flightNumberFor('DLH4UN', 'LH'), null); // alphanumeric callsign, not a flight number
+  assert.equal(flightNumberFor('DAL1605', null), null);
+  assert.equal(flightNumberFor('N333FA', 'XX'), null);
 });

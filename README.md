@@ -302,6 +302,7 @@ possible.
 | `routeUrl` | adsbdb via nginx | Second route source. `{callsign}` is filled in. |
 | `hexdbRouteUrl` | hexdb.io via nginx | Third route source. `""` to skip it. |
 | `airlineUrl` | adsbdb via nginx | Airline-name lookup URL. `{code}` (the callsign's ICAO prefix) is filled in. |
+| `logoUrl` | GitHub via nginx | Airline logo on the closest or picked plane's map tag. `{icao}` is filled in. `""` shows the airline code instead. |
 | `clock24h` | `true` | 24-hour clock |
 | `night.enabled`, `.start`, `.end`, `.brightness` | off, `23:00`, `06:30`, `0.25` | Dim the screen overnight |
 | `map.enabled` | `true` | Live map behind the cards. `false` gives the plain card-and-list page. |
@@ -347,6 +348,13 @@ within a minute.
 - When adsbdb has no route (or no airline) for a flight, the airline is looked up from the
   callsign's three-letter ICAO prefix (DAL1605 → Delta) through adsbdb's airline lookup, cached for
   7 days.
+- Map labels show the airline's short name and flight number (DAL1605 → Delta DL1605): the IATA
+  code from the airline lookup plus the callsign's number. Private flights show the registration.
+  The closest plane (or a picked one) gets a tag with the airline's logo, name, flight and route.
+- Logos come from [Jxck-S/airline-logos](https://github.com/Jxck-S/airline-logos) on GitHub, by
+  ICAO code: its RadarBox set first, then its FlightAware set. nginx caches each for 30 days. When
+  neither has the airline, the tag shows its two-letter code. The logos belong to the airlines;
+  they're used here only to identify flights on a private, non-commercial display.
 - If a fetch fails, the page keeps the last data and marks it stale. It never goes blank.
 - Planes move smoothly between the 5-second updates: the page moves each one forward from its last
   known position at its reported speed and heading, using the time the feed says the position was
@@ -360,8 +368,8 @@ within a minute.
 - The page requests the home area (for the card and list) and the circle around what's on screen,
   up to 250 nm. FreeFlight rounds every request to a grid point and a fixed radius and caches it,
   so at the home view both come from the same upstream query, and zoomed out it's about one
-  upstream request every 5 seconds. Route and airline lookups stay limited to the card, the list
-  and a picked plane.
+  upstream request every 5 seconds. Route lookups stay limited to the card, the list and a picked
+  plane. Airline lookups cover every plane on the map, but only once per airline.
 - Planes near home (and a picked one) are full map markers with labels. Everything else is drawn on
   a single canvas, which stays smooth with well over 1,000 planes; those get labels once you zoom in
   far enough. Click any plane to pick it.

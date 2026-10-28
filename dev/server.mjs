@@ -39,7 +39,13 @@ const AIRPORTS = {
   FRA: ['Frankfurt', 50.0379, 8.5622],
 };
 
-const AIRLINES = { BAW: 'British Airways', EIN: 'Aer Lingus', UAL: 'United Airlines', DLH: 'Lufthansa', AAL: 'American Airlines' };
+// ICAO code -> [name, IATA code], as adsbdb's airline lookup answers (the traffic's prefixes included).
+const AIRLINES = {
+  BAW: ['British Airways', 'BA'], EIN: ['Aer Lingus', 'EI'], UAL: ['United Airlines', 'UA'], DLH: ['Lufthansa', 'LH'],
+  AAL: ['American Airlines', 'AA'], DAL: ['Delta Air Lines', 'DL'], SWA: ['Southwest Airlines', 'WN'], JBU: ['JetBlue Airways', 'B6'],
+  RPA: ['Republic Airways', 'YX'], SKW: ['SkyWest Airlines', 'OO'], EDV: ['Endeavor Air', '9E'], FDX: ['FedEx Express', 'FX'],
+  UPS: ['UPS Airlines', '5X'], ENY: ['Envoy Air', 'MQ'], NKS: ['Spirit Airlines', 'NK'],
+};
 
 // Standing-data routes (tried first): multi-leg for EI154, and a stale one for AAL2401 that the
 // display should reject ("Route unconfirmed") since the plane is nowhere near Dallas-Philadelphia.
@@ -163,7 +169,7 @@ http
     if (m) {
       const icao = decodeURIComponent(m[1]).toUpperCase();
       if (!AIRLINES[icao]) return send(res, 404, { response: 'unknown airline' });
-      return send(res, 200, { response: [{ name: AIRLINES[icao], icao, iata: null, country: null }] });
+      return send(res, 200, { response: [{ name: AIRLINES[icao][0], icao, iata: AIRLINES[icao][1], country: null }] });
     }
     m = p.match(/^\/api\/route\/(.+)$/);
     if (m) {

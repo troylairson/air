@@ -1,6 +1,7 @@
 import {
   parseFeed, filterAircraft, parseRoute, pickLeg, isPrivateFlight, modelName, airlineCode, parseAirline,
   normalizeCallsign, routeFiles, airportFile, findRouteCodes, parseAirports, parseHexdbRoute,
+  parseAirlineIata, shortAirlineName, flightNumberFor,
 } from './adapter.js';
 import { createMap } from './map.js';
 
@@ -16,6 +17,7 @@ const DEFAULTS = {
   routeUrl: '/api/route/{callsign}',
   hexdbRouteUrl: '/api/hexdb/route/{callsign}', // third route source; '' to skip
   airlineUrl: '/api/airline/{code}',
+  logoUrl: '/api/logo/{icao}.png', // airline tail logos for the picked/closest plane's tag; '' for none
   clock24h: true,
   night: { enabled: false, start: '23:00', end: '06:30', brightness: 0.25 },
   // TV mode (the Android TV app opens the page with ?mode=tv): different defaults for a TV.
@@ -48,7 +50,7 @@ const state = {
   stale: false,
   error: null,
   routes: new Map(), // callsign -> { route, retryAt }
-  airlines: new Map(), // ICAO code -> { name, retryAt }
+  airlines: new Map(), // ICAO code -> { name, iata, retryAt }
   selected: null, // hex of the plane clicked on the map, shown in the card instead of the closest
   map: null, // see map.js; null when disabled
   view: null, // { lat, lon, radiusNm } of the map when it shows more than the home area, else null
@@ -230,11 +232,26 @@ async function lookupAirline(code) {
   state.airlines.set(code, { name: undefined, retryAt: Date.now() + ROUTE_RETRY_MS });
   try {
     const { ok, status, json } = await fetchJson(state.config.airlineUrl.replace('{code}', encodeURIComponent(code)));
-    if (ok) state.airlines.set(code, { name: parseAirline(json, code) });
-    else if (status === 404) state.airlines.set(code, { name: null });
+    if (ok) state.airlines.set(code, { name: parseAirline(json, code), iata: parseAirlineIata(json, code) });
+    else if (status === 404) state.airlines.set(code, { name: null, iata: null });
   } catch {
     // network error: retried after ROUTE_RETRY_MS
   }
+  renderSoon(); // labels gain the airline's name
+}
+
+// Several airline lookups finish together when the map first fills: render once for them.
+let renderTimer;
+function renderSoon() {
+  clearTimeout(renderTimer);
+  renderTimer = setTimeout(render, 300);
+}
+
+// Flight number people know: the airline's current IATA code plus the callsign's number (DL1605),
+// else adsbdb's (whose IATA codes can be out of date), else the callsign.
+function flightNo(a) {
+  const iata = state.airlines.get(airlineCode(a.callsign))?.iata;
+  return flightNumberFor(a.callsign, iata) ?? routesFor(a).find((r) => r.flightNumber)?.flightNumber ?? a.callsign;
 }
 
 const routesFor = (a) => (a.callsign ? state.routes.get(a.callsign)?.routes ?? [] : []);
@@ -357,7 +374,7 @@ function renderHero(a) {
   const r = priv ? null : routeFor(a);
   // Private flights: model as the title, registration once below it, no route lookup.
   const title = priv ? modelName(a) || a.registration || 'Private aircraft' : airlineFor(a) || a.registration || 'Unknown operator';
-  const flight = priv ? a.registration || a.hex.toUpperCase() : r?.flightNumber || a.callsign;
+  const flight = priv ? a.registration || a.hex.toUpperCase() : flightNo(a);
   const subtitle = !priv && a.callsign !== flight ? a.callsign : null;
   const leg = priv ? null : legFor(a);
   const route = priv
@@ -392,7 +409,7 @@ function renderRow(a) {
   const leg = priv ? null : legFor(a);
   const route = priv ? 'Private' : leg ? `${esc(leg.origin.code)} → ${esc(leg.destination.code)}` : r ? 'Unconfirmed' : '';
   return `<li>
-    <span class="cs">${esc(r?.flightNumber || a.callsign || a.registration || a.hex.toUpperCase())}</span>
+    <span class="cs">${esc(priv ? a.registration : flightNo(a) || a.registration || a.hex.toUpperCase())}</span>
     <span class="rt">${route}</span>
     <span class="ty">${esc(a.type || '')}</span>
     <span class="al">${fmt('altitude', a.altitudeFt)}</span>
@@ -435,11 +452,44 @@ function render() {
 }
 
 // Short name under each plane on the map.
+// Map label: the airline's short name and flight number ("Delta DL1605") once the airline is
+// known, else the flight number or callsign; private flights show their registration.
 function plainLabel(a) {
   if (isPrivateFlight(a)) return a.registration;
-  return routeFor(a)?.flightNumber || a.callsign || a.registration || a.hex.toUpperCase();
+  const name = shortAirlineName(airlineFor(a));
+  const number = flightNo(a) || a.registration || a.hex.toUpperCase();
+  return name ? `${name} ${number}` : number;
 }
 const mapLabel = (a) => esc(plainLabel(a));
+
+// The closest/picked plane's tag: logo, name and flight number, and the leg it's on.
+function heroTag(a) {
+  const priv = isPrivateFlight(a);
+  const icao = priv ? null : airlineCode(a.callsign);
+  const iata = icao && state.airlines.get(icao)?.iata;
+  const logoUrl = icao && state.config.logoUrl ? state.config.logoUrl.replace('{icao}', icao) : null;
+  // the airline's code shows until (or unless) its logo loads over it
+  const logo = icao
+    ? `<span class="tag-logo">${esc(iata ?? icao)}${logoUrl ? `<img src="${esc(logoUrl)}" alt="" onerror="this.remove()">` : ''}</span>`
+    : '';
+  const leg = priv ? null : legFor(a);
+  const second = priv
+    ? modelName(a) || 'Private flight'
+    : leg
+      ? `${leg.origin.code} → ${leg.destination.code}`
+      : routesFor(a).length
+        ? 'Route unconfirmed'
+        : '';
+  return `${logo}<span class="tag-text"><b>${esc(plainLabel(a))}</b>${second ? `<small>${esc(second)}</small>` : ''}</span>`;
+}
+
+// Airline names for every plane on the map (one lookup per airline, cached by nginx for a week).
+function lookupAirlines(list) {
+  for (const a of list) {
+    const code = !isPrivateFlight(a) && airlineCode(a.callsign);
+    if (code) lookupAirline(code);
+  }
+}
 
 // Markers (labels, trails) for the home area and the picked plane; the canvas for everything else.
 function updateMap(heroAc) {
@@ -448,9 +498,12 @@ function updateMap(heroAc) {
   const featured = state.aircraft.filter((a) => a.distanceNm <= radiusNm * fetchRadiusMultiplier);
   if (heroAc && !featured.includes(heroAc)) featured.push(heroAc);
   const shown = new Set(featured.map((a) => a.hex));
-  state.map.updateBulk(state.viewAircraft.filter((a) => !shown.has(a.hex)), plainLabel);
+  const bulk = state.viewAircraft.filter((a) => !shown.has(a.hex));
+  lookupAirlines(featured);
+  lookupAirlines(bulk);
+  state.map.updateBulk(bulk, plainLabel);
   const heroRoute = heroAc && !isPrivateFlight(heroAc) ? legFor(heroAc) : null;
-  state.map.update(featured, heroAc, mapLabel, heroRoute);
+  state.map.update(featured, heroAc, (a) => (a === heroAc ? heroTag(a) : mapLabel(a)), heroRoute);
 }
 
 // Frames the home view with home in the middle of the screen (the card, when shown, sits over the

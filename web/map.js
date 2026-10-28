@@ -182,8 +182,14 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
     const current = marker.rotation ?? target;
     marker.rotation = current + ((((target - current) % 360) + 540) % 360) - 180;
     el.querySelector('.map-plane-body').style.transform = `rotate(${marker.rotation}deg)`;
+    // The hero's label is a tag (logo, name, route) beside the plane, on its left near the right edge.
     const labelEl = el.querySelector('.map-plane-label');
-    if (labelEl.innerHTML !== label) labelEl.innerHTML = label;
+    if (labelEl.dataset.html !== label) {
+      labelEl.dataset.html = label; // compared as sent: innerHTML reads back normalised
+      labelEl.innerHTML = label;
+    }
+    labelEl.classList.toggle('map-tag', isHero);
+    if (isHero) labelEl.classList.toggle('tag-left', map.latLngToContainerPoint(marker.getLatLng()).x > map.getSize().x * 0.66);
   }
 
   function drawTrails(heroHex) {
@@ -419,7 +425,8 @@ export function createMap(element, config, { onSelect, onViewChange } = {}) {
   }
 
   // aircraft: filtered list from the latest fetch; hero: the closest one (or null);
-  // labelFor(a): text under each plane; heroRoute: the leg the hero is on ({ origin, destination }), if known.
+  // labelFor(a): HTML for each plane's label (the hero's is its tag); heroRoute: the leg the hero is
+  // on ({ origin, destination }), if known.
   function update(aircraft, hero, labelFor, heroRoute) {
     const now = Date.now();
     for (const a of aircraft) {

@@ -315,10 +315,39 @@ export function airlineCode(callsign) {
 // adsbdb /v0/airline/<icao> body -> airline name, or null. The response is a list of matches
 // (an object on some versions); prefer the one whose ICAO code is the one asked for.
 export function parseAirline(json, icao) {
+  return str(airlineMatch(json, icao)?.name);
+}
+
+// The same answer's IATA airline code (DAL -> DL), for flight numbers people know (DL1605).
+export function parseAirlineIata(json, icao) {
+  const iata = str(airlineMatch(json, icao)?.iata);
+  return iata && /^[A-Z0-9]{2}$/.test(iata) ? iata : null;
+}
+
+function airlineMatch(json, icao) {
   const resp = json?.response;
   const list = Array.isArray(resp) ? resp : resp && typeof resp === 'object' ? [resp] : [];
-  const match = list.find((a) => a?.icao === icao) ?? list[0];
-  return str(match?.name);
+  return list.find((a) => a?.icao === icao) ?? list[0];
+}
+
+// Airline name as people say it, for map labels: "Delta Air Lines" -> "Delta", "United Airlines"
+// -> "United". Only the generic "Air Lines"/"Airlines" ending (and company suffixes) goes, so
+// "British Airways", "Republic Airways" and "Air Canada" keep their names.
+export function shortAirlineName(name) {
+  if (!name) return null;
+  const short = name
+    .replace(/[,.]?\s+(Inc|Co|Corp|Ltd|LLC|S\.?A)\.?$/i, '')
+    .replace(/\s+(Air\s+Lines|Airlines)$/i, '')
+    .trim();
+  return short || name;
+}
+
+// Flight number from the IATA airline code plus the callsign's number (DAL1605 with DL -> DL1605),
+// or null. Only all-digit numbers: alphanumeric callsigns (DLH4UN, common in Europe) aren't
+// flight numbers (DLH4UN is LH903), so those take adsbdb's flight number or the callsign.
+export function flightNumberFor(callsign, iata) {
+  const m = /^[A-Z]{3}0*(\d{1,4})$/.exec(callsign ?? '');
+  return m && iata ? iata + m[1] : null;
 }
 
 // Common light-aircraft type codes, for aircraft that don't broadcast an emitter category:
