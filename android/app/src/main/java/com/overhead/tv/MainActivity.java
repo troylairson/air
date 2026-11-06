@@ -3,6 +3,7 @@ package com.overhead.tv;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Build;
@@ -80,9 +81,18 @@ public class MainActivity extends Activity {
         return prefs.getString(KEY_ADDRESS, "");
     }
 
-    /** "192.168.1.50:8090" -> "http://192.168.1.50:8090/?mode=tv" */
+    /** The box's address saved in the app ("" until it's been entered); the screensaver uses it too. */
+    static String savedAddress(Context context) {
+        return context.getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_ADDRESS, "");
+    }
+
     private String pageUrl() {
-        String base = address().trim();
+        return pageUrl(address());
+    }
+
+    /** "192.168.1.50:8090" -> "http://192.168.1.50:8090/?mode=tv" */
+    static String pageUrl(String address) {
+        String base = address.trim();
         if (!base.startsWith("http://") && !base.startsWith("https://")) base = "http://" + base;
         while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
         return base + "/?mode=tv";

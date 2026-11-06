@@ -255,6 +255,35 @@ hold **Back** for a second.
 TV mode starts map-only and limits zooming out to 100 nm, since TV processors are slower than a
 computer's (`tv.cardsHidden`, `tv.maxViewRadiusNm` in `config.json`).
 
+### As the TV's screensaver
+
+The app is also a screensaver: when the TV has been idle, it shows the live map (map only)
+instead of Google's Ambient mode, and any button on the remote ends it. It uses the box address
+saved in the app, so open the app once first.
+
+Google TV doesn't list other apps' screensavers in its settings, so switch it on once with `adb`.
+The box can run `adb` in a throwaway container, so you don't need a computer:
+
+1. On the TV: Settings → System → About, then press OK on **Android TV OS build** 7 times
+   ("You are now a developer").
+2. Settings → System → Developer options → turn on **USB debugging** (on Google TV this also
+   allows `adb` over the network). Note the TV's IP address (Settings → Network & Internet).
+3. On the box, in your SSH session (with the TV's IP):
+
+   ```sh
+   sudo docker run --rm -it --network host alpine sh -c "apk add -q android-tools && adb connect <tv-ip>:5555 && sleep 5 && echo Before: \$(adb shell settings get secure screensaver_components) && adb shell settings put secure screensaver_components com.overhead.tv/.OverheadDream && echo Now: \$(adb shell settings get secure screensaver_components)"
+   ```
+
+   The TV asks whether to allow USB debugging from this computer: choose **Always allow** and
+   **OK**. If the command failed while the TV was asking, run it again. It's done when it prints
+   `Now: com.overhead.tv/.OverheadDream`. Keep the `Before:` line: it's Google's screensaver.
+4. How long the TV waits before the screensaver: Settings → System → Energy (the name varies by
+   TV). You can turn USB debugging off again afterwards.
+
+A Google TV system update can put Ambient mode back; run step 3 again if it does. To go back to
+Google's screensaver yourself, run the same command with the `Before:` value in place of
+`com.overhead.tv/.OverheadDream`.
+
 ## Phase 4 (optional): your own receiver
 
 Goal: read aircraft from an antenna at the house, with FreeFlight as the fallback. Do this only
