@@ -42,6 +42,8 @@ const DEFAULTS = {
 
 const FETCH_TIMEOUT_MS = 8000;
 const TV = new URLSearchParams(location.search).get('mode') === 'tv';
+// The TV app's screensaver (?screensaver=1): always map only, leaving the saved choice alone.
+const SCREENSAVER = new URLSearchParams(location.search).get('screensaver') === '1';
 const ROUTE_RETRY_MS = 5 * 60 * 1000;
 
 const state = {
@@ -532,7 +534,7 @@ function setupMap() {
   document.body.classList.add('with-map');
   state.map = createMap($('map'), state.config, { onSelect: selectPlane, onViewChange: viewChanged });
   const saved = readSetting('cardsHidden');
-  setCardsHidden(saved === null ? TV && state.config.tv.cardsHidden : saved === '1');
+  setCardsHidden(SCREENSAVER || (saved === null ? TV && state.config.tv.cardsHidden : saved === '1'));
   $('cards-toggle').addEventListener('click', () => command('toggleCards'));
   let timer;
   window.addEventListener('resize', () => {
@@ -597,7 +599,7 @@ function setCardsHidden(hidden) {
   const button = $('cards-toggle');
   button.textContent = hidden ? 'Show info' : 'Map only';
   button.setAttribute('aria-pressed', String(hidden));
-  writeSetting('cardsHidden', hidden ? '1' : '0');
+  if (!SCREENSAVER) writeSetting('cardsHidden', hidden ? '1' : '0');
   fitMap();
 }
 
